@@ -417,6 +417,12 @@ def callback (rgb, pc):
     lower = (90, 60, 40)
     upper = (130, 255, 255)
     mask = cv2.inRange(hsv_image, lower, upper)
+    # process opencv mask
+    if occlusion_mask_rgb is None:
+        occlusion_mask_rgb = np.ones(cur_image.shape).astype('uint8')*255
+    occlusion_mask = cv2.cvtColor(occlusion_mask_rgb.copy(), cv2.COLOR_RGB2GRAY)
+    mask = cv2.bitwise_and(mask.copy(), occlusion_mask.copy())
+
     bmask = mask.copy()
     mask = cv2.cvtColor(mask.copy(), cv2.COLOR_GRAY2BGR)
 
@@ -449,11 +455,6 @@ def callback (rgb, pc):
     header.stamp = rospy.Time.now()
     converted_points = pcl2.create_cloud(header, fields, filtered_pc_colored)
     pc_pub.publish(converted_points)
-
-    # process opencv mask
-    if occlusion_mask_rgb is None:
-        occlusion_mask_rgb = np.ones(cur_image.shape).astype('uint8')*255
-    occlusion_mask = cv2.cvtColor(occlusion_mask_rgb.copy(), cv2.COLOR_RGB2GRAY)
 
     # register nodes
     if not initialized:
@@ -543,6 +544,7 @@ if __name__=='__main__':
                 PointField('z', 8, PointField.FLOAT32, 1),
                 PointField('rgba', 12, PointField.UINT32, 1)]
     pc_pub = rospy.Publisher ('/pts', PointCloud2, queue_size=10)
+    occlusion_sub = rospy.Subscriber('/mask_with_occlusion', Image, update_occlusion_mask)
 
     tracking_img_pub = rospy.Publisher ('/tracking_img', Image, queue_size=10)
     mask_img_pub = rospy.Publisher('/mask', Image, queue_size=10)
