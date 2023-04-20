@@ -4,6 +4,8 @@
 #include <Eigen/Dense>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <Eigen/KroneckerProduct>
+#include <unsupported/Eigen/SpecialFunctions>
 #include <vector>
 
 #include <ros/ros.h>
@@ -81,7 +83,7 @@ class bcpd_tracker
         // kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         // gamma      -- the scale factor of sigma2_0
         void bcpd (MatrixXf X,
-                   MatrixXf& Y,
+                   MatrixXf& Y_hat,
                    double& sigma2,
                    double beta,
                    double lambda,
