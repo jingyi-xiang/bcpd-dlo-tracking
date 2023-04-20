@@ -36,7 +36,7 @@ import scipy
 # lambda     -- the scale factor of sigma2_0
 # beta       -- controls the influence of motion coherence
 
-def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50):
+def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001):
     # ===== initialization =====
     N = len(X)
     M = len(Y)
@@ -63,6 +63,11 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50):
     diff = X[None, :, :] - Y[:, None, :]
     err = diff ** 2
     sigma2 = gamma * np.sum(err) / (3 * M * N)
+
+    # ===== log time and initial values =====
+    start_time = time.time()
+    prev_Y_hat = Y_hat.copy()
+    prev_sigma2 = sigma2
 
     for i in range (0, max_iter):
         Y_hat_flat = Y_hat.flatten()
@@ -140,12 +145,22 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50):
 
         nu_prime_tilde = np.kron(nu_prime, np.ones((3,)))
         sigma2 = 1/(N_hat*3) * (X_flat.reshape(1, N*3) @ np.diag(nu_prime_tilde) @ X_flat.reshape(N*3, 1) - 2*X_flat.reshape(1, N*3) @ P_tilde.T @ Y_hat.flatten() + (Y_hat.flatten()).reshape(1, M*3) @ np.diag(nu_tilde) @ (Y_hat.flatten())) + s**2 * sigma2_bar
-    
-    return Y_hat
+
+        # ===== check convergence =====
+        if abs(sigma2 - prev_sigma2) < tol and np.amax(np.abs(Y_hat - prev_Y_hat)) < tol:
+            print("Converged after " + str(i) + " iterations. Time taken: " + str(time.time() - start_time) + " s.")
+            break
+
+        if i == max_iter - 1:
+            print("Optimization did not converge! Time taken: " + str(time.time() - start_time) + " s.")
+        
+        prev_Y_hat = Y_hat.copy()
+        prev_sigma2 = sigma2
+
+    return Y_hat, sigma2
 
 if __name__ == "__main__":
     # load recorded data
-    # try finding node - node correspondences first
     data_dir = dir = join(dirname(abspath(__file__)), "data/frames/")
 
     # in the BCPD paper, Y are the source nodes
@@ -154,13 +169,13 @@ if __name__ == "__main__":
     Y = np.array(Y)
     f.close()
 
-    # # X are the target nodes
+    # ===== load X as target nodes =====
     # f = open(data_dir + '001_nodes.json', 'rb')
     # X, _ = pkl.load(f, encoding="bytes")
     # X = np.array(X)
     # f.close()
 
-    # X are the target nodes (pointcloud from the next frame)
+    # ===== load X as target point cloud =====
     f = open(data_dir + '001_pcl.json', 'rb')
     X = pkl.load(f, encoding="bytes")
     f.close()
@@ -169,7 +184,7 @@ if __name__ == "__main__":
     X = X[::int(1/0.025)]
 
     # run bcpd
-    Y_hat = bcpd(X=X, Y=Y, beta=1, omega=0, lam=1, kappa=1e16, gamma=1, max_iter=50)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=1, omega=0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.001)
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), r=10)
