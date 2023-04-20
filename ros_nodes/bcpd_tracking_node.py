@@ -112,6 +112,18 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     diff = np.sum(diff, 2)
     G = np.exp(-diff / (2 * beta**2))
 
+    # seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
+    # converted_node_coord = []
+    # last_pt = 0
+    # converted_node_coord.append(last_pt)
+    # for i in range (1, M):
+    #     last_pt += seg_dis[i-1]
+    #     converted_node_coord.append(last_pt)
+    # converted_node_coord = np.array(converted_node_coord)
+    # converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
+    # converted_node_dis_sq = np.square(converted_node_dis)
+    # G = np.exp(-converted_node_dis_sq / (2 * beta**2))
+
     # initialize sigma2
     if sigma2_0 is None:
         diff = X[None, :, :] - Y[:, None, :]
@@ -477,7 +489,7 @@ def callback (rgb, pc):
         # kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         # gamma      -- the scale factor of sigma2_0
         # beta       -- controls the influence of motion coherence
-        nodes, sigma2 = bcpd(X=filtered_pc, Y=init_nodes, beta=0.5, omega=0.05, lam=1, kappa=1e16, gamma=10, max_iter=50, tol=0.0001, sigma2_0=sigma2)
+        nodes, sigma2 = bcpd(X=filtered_pc, Y=init_nodes, beta=0.1, omega=0.05, lam=10, kappa=1e16, gamma=10, max_iter=50, tol=0.00001, sigma2_0=sigma2)
         init_nodes = nodes.copy()
 
         # project and pub tracking image
