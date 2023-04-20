@@ -89,7 +89,7 @@ def register(pts, M, mu=0, max_iter=10):
     # print(repr(new_x), new_s)
     return new_Y, new_s
 
-def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001):
+def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None):
     # ===== initialization =====
     N = len(X)
     M = len(Y)
@@ -113,9 +113,12 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001):
     G = np.exp(-diff / (2 * beta**2))
 
     # initialize sigma2
-    diff = X[None, :, :] - Y[:, None, :]
-    err = diff ** 2
-    sigma2 = gamma * np.sum(err) / (3 * M * N)
+    if sigma2_0 is None:
+        diff = X[None, :, :] - Y[:, None, :]
+        err = diff ** 2
+        sigma2 = gamma * np.sum(err) / (3 * M * N)
+    else:
+        sigma2 = gamma * sigma2_0
 
     # ===== log time and initial values =====
     start_time = time.time()
@@ -467,7 +470,14 @@ def callback (rgb, pc):
         # bmask_transformed = bmask_transformed / np.amax(bmask_transformed)
         vis = bmask_transformed[uvs_t]
 
-        nodes, sigma2 = bcpd(X=filtered_pc, Y=init_nodes, beta=1, omega=0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.001)
+        # ===== Parameters =====
+        # X \in R^N  -- target point set
+        # Y \in R^M  -- source point set 
+        # omega      -- the outlier probability
+        # kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
+        # gamma      -- the scale factor of sigma2_0
+        # beta       -- controls the influence of motion coherence
+        nodes, sigma2 = bcpd(X=filtered_pc, Y=init_nodes, beta=0.5, omega=0.05, lam=1, kappa=1e16, gamma=10, max_iter=50, tol=0.0001, sigma2_0=sigma2)
         init_nodes = nodes.copy()
 
         # project and pub tracking image

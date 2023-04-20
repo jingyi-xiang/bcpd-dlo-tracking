@@ -5,8 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /Status1
-        - /Image2
+        - /PointCloud21
       Splitter Ratio: 0.5
     Tree Height: 277
   - Class: rviz/Selection
@@ -84,22 +83,80 @@ Visualization Manager:
       Position Transformer: XYZ
       Queue Size: 1
       Selectable: true
-      Size (Pixels): 1
+      Size (Pixels): 10
       Size (m): 0.009999999776482582
       Style: Points
-      Topic: /camera/depth/color/points
+      Topic: /pts
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
     - Class: rviz/MarkerArray
-      Enabled: false
+      Enabled: true
       Marker Topic: /results
       Name: MarkerArray
       Namespaces:
-        {}
-      Queue Size: 100
-      Value: false
+        line_results0: true
+        line_results1: true
+        line_results10: true
+        line_results11: true
+        line_results12: true
+        line_results13: true
+        line_results14: true
+        line_results15: true
+        line_results16: true
+        line_results17: true
+        line_results18: true
+        line_results19: true
+        line_results2: true
+        line_results20: true
+        line_results21: true
+        line_results22: true
+        line_results23: true
+        line_results24: true
+        line_results25: true
+        line_results26: true
+        line_results27: true
+        line_results28: true
+        line_results3: true
+        line_results4: true
+        line_results5: true
+        line_results6: true
+        line_results7: true
+        line_results8: true
+        line_results9: true
+        node_results0: true
+        node_results1: true
+        node_results10: true
+        node_results11: true
+        node_results12: true
+        node_results13: true
+        node_results14: true
+        node_results15: true
+        node_results16: true
+        node_results17: true
+        node_results18: true
+        node_results19: true
+        node_results2: true
+        node_results20: true
+        node_results21: true
+        node_results22: true
+        node_results23: true
+        node_results24: true
+        node_results25: true
+        node_results26: true
+        node_results27: true
+        node_results28: true
+        node_results29: true
+        node_results3: true
+        node_results4: true
+        node_results5: true
+        node_results6: true
+        node_results7: true
+        node_results8: true
+        node_results9: true
+      Queue Size: 10
+      Value: true
     - Class: rviz/Image
       Enabled: true
       Image Topic: /tracking_img
@@ -140,7 +197,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 0.9212717413902283
+      Distance: 0.8422005772590637
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -148,9 +205,9 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 0.5509827733039856
-        Y: 0.05940655618906021
-        Z: 0.025568131357431412
+        X: 0.5875875949859619
+        Y: 0.06845278292894363
+        Z: 0.02560470812022686
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
@@ -158,7 +215,7 @@ Visualization Manager:
       Near Clip Distance: 0.009999999776482582
       Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
-      Yaw: 3.1390252113342285
+      Yaw: 3.124025344848633
     Saved: ~
 Window Geometry:
   Displays:

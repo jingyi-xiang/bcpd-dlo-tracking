@@ -33,10 +33,10 @@ import scipy
 # Y \in R^M  -- source point set 
 # omega      -- the outlier probability
 # kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
-# lambda     -- the scale factor of sigma2_0
+# gamma      -- the scale factor of sigma2_0
 # beta       -- controls the influence of motion coherence
 
-def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001):
+def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None):
     # ===== initialization =====
     N = len(X)
     M = len(Y)
@@ -60,9 +60,12 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001):
     G = np.exp(-diff / (2 * beta**2))
 
     # initialize sigma2
-    diff = X[None, :, :] - Y[:, None, :]
-    err = diff ** 2
-    sigma2 = gamma * np.sum(err) / (3 * M * N)
+    if sigma2_0 is None:
+        diff = X[None, :, :] - Y[:, None, :]
+        err = diff ** 2
+        sigma2 = gamma * np.sum(err) / (3 * M * N)
+    else:
+        sigma2 = gamma * sigma2_0
 
     # ===== log time and initial values =====
     start_time = time.time()
