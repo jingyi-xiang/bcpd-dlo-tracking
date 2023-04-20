@@ -4,7 +4,7 @@
 #include <Eigen/Dense>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-#include <Eigen/KroneckerProduct>
+#include <unsupported/Eigen/KroneckerProduct>
 #include <unsupported/Eigen/SpecialFunctions>
 #include <vector>
 
