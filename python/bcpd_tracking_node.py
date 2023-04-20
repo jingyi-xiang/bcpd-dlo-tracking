@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import matplotlib.pyplot as plt
 import rospy
 import ros_numpy
 from sensor_msgs.msg import PointCloud2, PointField, Image
