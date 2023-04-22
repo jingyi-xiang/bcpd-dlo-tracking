@@ -121,7 +121,13 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     # converted_node_coord = np.array(converted_node_coord)
     # converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
     # converted_node_dis_sq = np.square(converted_node_dis)
-    # G = np.exp(-converted_node_dis_sq / (2 * beta**2))
+    # G = 0.99 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.01 * G
+
+    # # G approximation
+    # eigen_values, eigen_vectors = np.linalg.eig(G)
+    # positive_indices = eigen_values > 0
+    # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    # G = G_hat.astype(np.float64)
 
     # initialize sigma2
     if sigma2_0 is None:

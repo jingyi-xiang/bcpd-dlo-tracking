@@ -59,6 +59,28 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     diff = np.sum(diff, 2)
     G = np.exp(-diff / (2 * beta**2))
 
+    # # geodesic distance
+    # seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
+    # converted_node_coord = []
+    # last_pt = 0
+    # converted_node_coord.append(last_pt)
+    # for i in range (1, M):
+    #     last_pt += seg_dis[i-1]
+    #     converted_node_coord.append(last_pt)
+    # converted_node_coord = np.array(converted_node_coord)
+    # converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
+    # converted_node_dis_sq = np.square(converted_node_dis)
+    # G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
+
+    # # G approximation
+    # eigen_values, eigen_vectors = np.linalg.eig(G)
+    # positive_indices = eigen_values > 0
+    # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    # # print(eigen_values.astype(np.float64))
+    # # print(type(G_hat[0, 0]))
+    # # return
+    # G = G_hat.astype(np.float64)
+
     # initialize sigma2
     if sigma2_0 is None:
         diff = X[None, :, :] - Y[:, None, :]
@@ -160,6 +182,11 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         prev_Y_hat = Y_hat.copy()
         prev_sigma2 = sigma2
 
+    print(s)
+    T_hat = np.eye(4)
+    T_hat[0:3, 0:3] = R
+    T_hat[0:3, 3] = t
+    Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
     return Y_hat, sigma2
 
 if __name__ == "__main__":
@@ -168,7 +195,7 @@ if __name__ == "__main__":
 
     # in the BCPD paper, Y are the source nodes
     f = open(data_dir + 'nodes/000_nodes.json', 'rb')
-    Y, _ = pkl.load(f, encoding="bytes")
+    Y, sigma2 = pkl.load(f, encoding="bytes")
     Y = np.array(Y)
     f.close()
 
@@ -187,7 +214,7 @@ if __name__ == "__main__":
     X = X[::int(1/0.025)]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=1, omega=0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.001)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=1, omega=0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.00001, sigma2_0=sigma2)
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), r=10)
