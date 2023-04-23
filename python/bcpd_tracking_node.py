@@ -194,7 +194,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
 
         # ===== update s, R, t, sigma2, y_hat =====
         X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-        sigma2_bar = np.sum(nu*sigma2) / N_hat
+        sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
         u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
 
         S_xu = np.zeros((3, 3))
@@ -448,7 +448,7 @@ def callback (rgb, pc):
     filtered_pc = cur_pc*mask
     filtered_pc = filtered_pc[((filtered_pc[:, :, 0] != 0) | (filtered_pc[:, :, 1] != 0) | (filtered_pc[:, :, 2] != 0))]
     # filtered_pc = filtered_pc[filtered_pc[:, 2] < 0.605]
-    filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.4]
+    filtered_pc = filtered_pc[filtered_pc[:, 0] > -0.2]
     # print('filtered pc shape = ', np.shape(filtered_pc))
 
     # downsample with open3d
@@ -492,7 +492,7 @@ def callback (rgb, pc):
         # beta       -- controls the influence of motion coherence
         filtered_pc *= 30
         nodes *= 30
-        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=1, omega=0.1, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2)
+        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=2, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.00001*30, sigma2_0=sigma2)
         print("sigma2 =", sigma2)
         filtered_pc /= 30
         nodes /= 30

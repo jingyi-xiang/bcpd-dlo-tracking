@@ -142,7 +142,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
 
         # ===== update s, R, t, sigma2, y_hat =====
         X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-        sigma2_bar = np.sum(nu*sigma2) / N_hat
+        sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
         u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
 
         S_xu = np.zeros((3, 3))
@@ -212,7 +212,7 @@ if __name__ == "__main__":
     X = X[::int(1/0.025)]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=10, omega=0, lam=10, kappa=1e16, gamma=1, max_iter=50, tol=0.00001, sigma2_0=None)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=0.5, omega=0.05, lam=10, kappa=1e16, gamma=1, max_iter=50, tol=0.00001, sigma2_0=None)
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), r=10)
@@ -223,7 +223,7 @@ if __name__ == "__main__":
     plt.show(Y_pc, X_pc, Y_hat_pc)
 
     # more frames?
-    num_of_frames = 0
+    num_of_frames = 10
     for i in range (2, num_of_frames):  # the next frame is frame 2
         sample_prefix = ''
         if len(str(i)) == 1:
@@ -233,7 +233,7 @@ if __name__ == "__main__":
         else:
             sample_prefix = ''
         sample_id = sample_prefix + str(i)
-        sample_id = '001'
+        # sample_id = '001'
 
         f = open(data_dir + sample_id + '_pcl.json', 'rb')
         X = pkl.load(f, encoding="bytes")
@@ -243,7 +243,7 @@ if __name__ == "__main__":
         X = X[::int(1/0.05)]
 
         # run bcpd
-        Y_hat, sigma2 = bcpd(X=X, Y=Y_hat, beta=10, omega=0, lam=10, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2)
+        Y_hat, sigma2 = bcpd(X=X, Y=Y_hat, beta=0.01, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=None)
 
         # test: show both sets of nodes
         Y_pc = Points(Y, c=(255, 0, 0), r=10)
