@@ -111,6 +111,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     diff = np.sum(diff, 2)
     G = np.exp(-diff / (2 * beta**2))
 
+    # # geodesic distance
     # seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
     # converted_node_coord = []
     # last_pt = 0
@@ -121,12 +122,15 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     # converted_node_coord = np.array(converted_node_coord)
     # converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
     # converted_node_dis_sq = np.square(converted_node_dis)
-    # G = 0.99 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.01 * G
+    # G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
 
     # # G approximation
     # eigen_values, eigen_vectors = np.linalg.eig(G)
     # positive_indices = eigen_values > 0
     # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    # # print(eigen_values.astype(np.float64))
+    # # print(type(G_hat[0, 0]))
+    # # return
     # G = G_hat.astype(np.float64)
 
     # initialize sigma2
@@ -147,11 +151,9 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         v_hat_flat = v_hat.flatten()
 
         # ===== update P and related terms =====
-        pts_dis_sq = np.sum((X[None, :, :] - Y_hat[:, None, :]) ** 2, axis=2)
-        P = np.exp(-pts_dis_sq / (2 * sigma2))
-        P *= alpha_m_bracket
-
-        c = (2 * np.pi * sigma2) ** (3.0 / 2.0) * omega / (1 - omega) / N
+        pts_dis_sq = np.sum((X[None, :, :] - Y[:, None, :]) ** 2, axis=2)
+        c = omega / N
+        P = np.exp(-pts_dis_sq / (2 * sigma2)) * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega)
         den = np.sum(P, axis=0)
         den = np.tile(den, (M, 1))
         den[den == 0] = np.finfo(float).eps
@@ -230,6 +232,11 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         prev_Y_hat = Y_hat.copy()
         prev_sigma2 = sigma2
 
+    # print(s)
+    # T_hat = np.eye(4)
+    # T_hat[0:3, 0:3] = R
+    # T_hat[0:3, 3] = t
+    # Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
     return Y_hat, sigma2
 
 def sort_pts(Y_0):
@@ -462,32 +469,20 @@ def callback (rgb, pc):
     converted_points = pcl2.create_cloud(header, fields, filtered_pc_colored)
     pc_pub.publish(converted_points)
 
+    print("Received " + str(len(filtered_pc)) + " points")
+
     # register nodes
     if not initialized:
-        # get nodes for wire 3
+        filtered_pc *= 30
         init_nodes, sigma2 = register(filtered_pc, 30, mu=0, max_iter=50)
         init_nodes = np.array(sort_pts(init_nodes))
+        filtered_pc /= 30
+        init_nodes /= 30
+        nodes = init_nodes
         initialized = True
+        print("sigma2 =", sigma2)
+        print("Initialized")
     else:
-        # determined which nodes are occluded from mask information
-        mask_dis_threshold = 10
-        # projection
-        init_nodes_h = np.hstack((init_nodes, np.ones((len(init_nodes), 1))))
-        image_coords = np.matmul(proj_matrix, init_nodes_h.T).T
-        us = (image_coords[:, 0] / image_coords[:, 2]).astype(int)
-        vs = (image_coords[:, 1] / image_coords[:, 2]).astype(int)
-
-        us = np.where(us >= 1280, 1279, us)
-        vs = np.where(vs >= 720, 719, vs)
-
-        uvs = np.vstack((vs, us)).T
-        uvs_t = tuple(map(tuple, uvs.T))
-
-        # invert bmask for distance transform
-        bmask_transformed = scipy.ndimage.distance_transform_edt(255 - bmask)
-        # bmask_transformed = bmask_transformed / np.amax(bmask_transformed)
-        vis = bmask_transformed[uvs_t]
-
         # ===== Parameters =====
         # X \in R^N  -- target point set
         # Y \in R^M  -- source point set 
@@ -495,44 +490,68 @@ def callback (rgb, pc):
         # kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         # gamma      -- the scale factor of sigma2_0
         # beta       -- controls the influence of motion coherence
-        nodes, sigma2 = bcpd(X=filtered_pc, Y=init_nodes, beta=0.1, omega=0.05, lam=10, kappa=1e16, gamma=10, max_iter=50, tol=0.00001, sigma2_0=sigma2)
+        filtered_pc *= 30
+        nodes *= 30
+        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=1, omega=0.1, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2)
+        print("sigma2 =", sigma2)
+        filtered_pc /= 30
+        nodes /= 30
         init_nodes = nodes.copy()
 
-        # project and pub tracking image
-        nodes_h = np.hstack((nodes, np.ones((len(nodes), 1))))
+    # determined which nodes are occluded from mask information
+    mask_dis_threshold = 10
+    # projection
+    init_nodes_h = np.hstack((init_nodes, np.ones((len(init_nodes), 1))))
+    image_coords = np.matmul(proj_matrix, init_nodes_h.T).T
+    us = (image_coords[:, 0] / image_coords[:, 2]).astype(int)
+    vs = (image_coords[:, 1] / image_coords[:, 2]).astype(int)
 
-        # proj_matrix: 3*4; nodes_h.T: 4*M; result: 3*M
-        image_coords = np.matmul(proj_matrix, nodes_h.T).T
-        us = (image_coords[:, 0] / image_coords[:, 2]).astype(int)
-        vs = (image_coords[:, 1] / image_coords[:, 2]).astype(int)
+    us = np.where(us >= 1280, 1279, us)
+    vs = np.where(vs >= 720, 719, vs)
 
-        cur_image_masked = cv2.bitwise_and(cur_image, occlusion_mask_rgb)
-        tracking_img = (cur_image*0.5 + cur_image_masked*0.5).astype(np.uint8)
+    uvs = np.vstack((vs, us)).T
+    uvs_t = tuple(map(tuple, uvs.T))
 
-        for i in range (len(image_coords)):
-            # draw circle
-            uv = (us[i], vs[i])
+    # invert bmask for distance transform
+    bmask_transformed = scipy.ndimage.distance_transform_edt(255 - bmask)
+    # bmask_transformed = bmask_transformed / np.amax(bmask_transformed)
+    vis = bmask_transformed[uvs_t]
+
+    # project and pub tracking image
+    nodes_h = np.hstack((nodes, np.ones((len(nodes), 1))))
+
+    # proj_matrix: 3*4; nodes_h.T: 4*M; result: 3*M
+    image_coords = np.matmul(proj_matrix, nodes_h.T).T
+    us = (image_coords[:, 0] / image_coords[:, 2]).astype(int)
+    vs = (image_coords[:, 1] / image_coords[:, 2]).astype(int)
+
+    cur_image_masked = cv2.bitwise_and(cur_image, occlusion_mask_rgb)
+    tracking_img = (cur_image*0.5 + cur_image_masked*0.5).astype(np.uint8)
+
+    for i in range (len(image_coords)):
+        # draw circle
+        uv = (us[i], vs[i])
+        if vis[i] < mask_dis_threshold:
+            cv2.circle(tracking_img, uv, 5, (255, 150, 0), -1)
+        else:
+            cv2.circle(tracking_img, uv, 5, (255, 0, 0), -1)
+
+        # draw line
+        if i != len(image_coords)-1:
             if vis[i] < mask_dis_threshold:
-                cv2.circle(tracking_img, uv, 5, (255, 150, 0), -1)
+                cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (0, 255, 0), 2)
             else:
-                cv2.circle(tracking_img, uv, 5, (255, 0, 0), -1)
+                cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (255, 0, 0), 2)
+    
+    tracking_img_msg = ros_numpy.msgify(Image, tracking_img, 'rgb8')
+    tracking_img_msg.header = head
+    tracking_img_pub.publish(tracking_img_msg)
 
-            # draw line
-            if i != len(image_coords)-1:
-                if vis[i] < mask_dis_threshold:
-                    cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (0, 255, 0), 2)
-                else:
-                    cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (255, 0, 0), 2)
-        
-        tracking_img_msg = ros_numpy.msgify(Image, tracking_img, 'rgb8')
-        tracking_img_msg.header = head
-        tracking_img_pub.publish(tracking_img_msg)
+    results = ndarray2MarkerArray(nodes, [255, 150, 0, 0.75], [0, 255, 0, 0.75], head)
+    results_pub.publish(results)
 
-        results = ndarray2MarkerArray(nodes, [255, 150, 0, 0.75], [0, 255, 0, 0.75], head)
-        results_pub.publish(results)
-
-        print(time.time() - cur_time)
-        cur_time = time.time()
+    print(time.time() - cur_time)
+    cur_time = time.time()
 
 if __name__=='__main__':
     rospy.init_node('test', anonymous=True)

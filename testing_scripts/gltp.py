@@ -141,6 +141,8 @@ def cpd_lle (X, Y_0, beta, alpha, gamma, mu, max_iter=50, tol=0.00001, include_l
         den += c
         P = np.divide(P, den)
 
+        print(np.amax(P))
+
         max_p_nodes = np.argmax(P, axis=0)
 
         # if use geodesic, overwrite P
@@ -187,8 +189,6 @@ def cpd_lle (X, Y_0, beta, alpha, gamma, mu, max_iter=50, tol=0.00001, include_l
         P1 = np.sum(P, axis=1)
         Np = np.sum(P1)
         PX = np.matmul(P, X)
-
-        print(Pt1)
     
         # ----- M step: solve for new weights and variance -----
         if include_lle:
@@ -243,7 +243,7 @@ if __name__ == "__main__":
     # X = X[X[:, 0] > -0.15]
 
     # load Y_0 (sorted) and sigma2_0 (GMM centroids and variance - initial frame)
-    f = open(data_dir + 'nodes/000_nodes.json', 'rb')
+    f = open(data_dir + 'nodes/001_nodes.json', 'rb')
     data = pkl.load(f, encoding="bytes")
     f.close()
     Y_0, sigma2_0 = np.array(data[0]), data[1]
@@ -308,10 +308,10 @@ if __name__ == "__main__":
         X = np.array(X)
         X = X[::int(1/0.05)]
 
-        # create occlusion
-        # X = X[X[:, 0] < 0.12]
-        # X = X[X[:, 0] > -0.15]
-        X = X[~((0 < X[:, 0]) & (X[:, 0] < 0.1) & (X[:, 1] > 0))]
+        # # create occlusion
+        # # X = X[X[:, 0] < 0.12]
+        # # X = X[X[:, 0] > -0.15]
+        # X = X[~((0 < X[:, 0]) & (X[:, 0] < 0.1) & (X[:, 1] > 0))]
 
         cur_time = time.time()
         Y, sigma2 = cpd_lle(X = X, 
