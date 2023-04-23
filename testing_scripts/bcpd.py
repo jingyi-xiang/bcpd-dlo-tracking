@@ -99,11 +99,9 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         v_hat_flat = v_hat.flatten()
 
         # ===== update P and related terms =====
-        pts_dis_sq = np.sum((X[None, :, :] - Y_hat[:, None, :]) ** 2, axis=2)
-        P = np.exp(-pts_dis_sq / (2 * sigma2))
-        P *= alpha_m_bracket
-
-        c = (2 * np.pi * sigma2) ** (3.0 / 2.0) * omega / (1 - omega) / N
+        pts_dis_sq = np.sum((X[None, :, :] - Y[:, None, :]) ** 2, axis=2)
+        c = omega / N
+        P = np.exp(-pts_dis_sq / (2 * sigma2)) * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega)
         den = np.sum(P, axis=0)
         den = np.tile(den, (M, 1))
         den[den == 0] = np.finfo(float).eps
@@ -182,11 +180,11 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         prev_Y_hat = Y_hat.copy()
         prev_sigma2 = sigma2
 
-    print(s)
-    T_hat = np.eye(4)
-    T_hat[0:3, 0:3] = R
-    T_hat[0:3, 3] = t
-    Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
+    # print(s)
+    # T_hat = np.eye(4)
+    # T_hat[0:3, 0:3] = R
+    # T_hat[0:3, 3] = t
+    # Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
     return Y_hat, sigma2
 
 if __name__ == "__main__":
@@ -214,7 +212,7 @@ if __name__ == "__main__":
     X = X[::int(1/0.025)]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=1, omega=0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.00001, sigma2_0=sigma2)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=10, omega=0, lam=10, kappa=1e16, gamma=1, max_iter=50, tol=0.00001, sigma2_0=None)
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), r=10)
@@ -223,3 +221,34 @@ if __name__ == "__main__":
     
     plt = Plotter()
     plt.show(Y_pc, X_pc, Y_hat_pc)
+
+    # more frames?
+    num_of_frames = 0
+    for i in range (2, num_of_frames):  # the next frame is frame 2
+        sample_prefix = ''
+        if len(str(i)) == 1:
+            sample_prefix = '00'
+        elif len(str(i)) == 2:
+            sample_prefix ='0'
+        else:
+            sample_prefix = ''
+        sample_id = sample_prefix + str(i)
+        sample_id = '001'
+
+        f = open(data_dir + sample_id + '_pcl.json', 'rb')
+        X = pkl.load(f, encoding="bytes")
+        f.close()
+
+        X = np.array(X)
+        X = X[::int(1/0.05)]
+
+        # run bcpd
+        Y_hat, sigma2 = bcpd(X=X, Y=Y_hat, beta=10, omega=0, lam=10, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2)
+
+        # test: show both sets of nodes
+        Y_pc = Points(Y, c=(255, 0, 0), r=10)
+        X_pc = Points(X, c=(0, 0, 255), r=3)
+        Y_hat_pc = Points(Y_hat, c=(0, 255, 0), r=10)
+        
+        plt = Plotter()
+        plt.show(Y_pc, X_pc, Y_hat_pc)
