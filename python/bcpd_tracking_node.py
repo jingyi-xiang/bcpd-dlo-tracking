@@ -426,10 +426,30 @@ def callback (rgb, pc):
     cur_pc = ros_numpy.point_cloud2.get_xyz_points(pc_data)
     cur_pc = cur_pc.reshape((720, 1280, 3))
 
-    # --- rope blue ---
-    lower = (90, 60, 40)
-    upper = (130, 255, 255)
-    mask = cv2.inRange(hsv_image, lower, upper)
+    if not use_marker_rope:
+        # color thresholding
+        lower = (90, 80, 80)
+        upper = (130, 255, 255)
+        mask = cv2.inRange(hsv_image, lower, upper)
+    else:
+        # color thresholding
+        # --- rope blue ---
+        lower = (90, 80, 80)
+        upper = (130, 255, 255)
+        mask_dlo = cv2.inRange(hsv_image, lower, upper).astype('uint8')
+
+        # --- tape red ---
+        lower = (130, 60, 50)
+        upper = (255, 255, 255)
+        mask_red_1 = cv2.inRange(hsv_image, lower, upper).astype('uint8')
+        lower = (0, 60, 50)
+        upper = (10, 255, 255)
+        mask_red_2 = cv2.inRange(hsv_image, lower, upper).astype('uint8')
+        mask_marker = cv2.bitwise_or(mask_red_1.copy(), mask_red_2.copy()).astype('uint8')
+
+        # combine masks
+        mask = cv2.bitwise_or(mask_marker.copy(), mask_dlo.copy())
+
     # process opencv mask
     if occlusion_mask_rgb is None:
         occlusion_mask_rgb = np.ones(cur_image.shape).astype('uint8')*255
@@ -448,7 +468,12 @@ def callback (rgb, pc):
     filtered_pc = cur_pc*mask
     filtered_pc = filtered_pc[((filtered_pc[:, :, 0] != 0) | (filtered_pc[:, :, 1] != 0) | (filtered_pc[:, :, 2] != 0))]
     # filtered_pc = filtered_pc[filtered_pc[:, 2] < 0.605]
-    filtered_pc = filtered_pc[filtered_pc[:, 0] > -0.2]
+
+    # temp hard code
+    if not use_marker_rope:
+        filtered_pc = filtered_pc[filtered_pc[:, 0] > -0.2]
+    else:
+        filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.55]
     # print('filtered pc shape = ', np.shape(filtered_pc))
 
     # downsample with open3d
@@ -492,7 +517,7 @@ def callback (rgb, pc):
         # beta       -- controls the influence of motion coherence
         filtered_pc *= 30
         nodes *= 30
-        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=2, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.00001*30, sigma2_0=sigma2)
+        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=3, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.00001*30, sigma2_0=None)
         print("sigma2 =", sigma2)
         filtered_pc /= 30
         nodes /= 30
@@ -552,6 +577,8 @@ def callback (rgb, pc):
 
     print(time.time() - cur_time)
     cur_time = time.time()
+
+use_marker_rope = True
 
 if __name__=='__main__':
     rospy.init_node('test', anonymous=True)
