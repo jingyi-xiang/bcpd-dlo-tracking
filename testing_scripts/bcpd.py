@@ -36,10 +36,19 @@ import scipy
 # gamma      -- the scale factor of sigma2_0
 # beta       -- controls the influence of motion coherence
 
-def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None):
+def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None, corr_priors = None, zeta = None):
     # ===== initialization =====
     N = len(X)
     M = len(Y)
+
+    # initialize the J (MxN) matrix (if corr_priors is not None)
+    # corr_priors should have format (x, y, z, index)
+    if corr_priors is not None:
+        N += len(corr_priors)
+        J = np.zeros((M, N))
+        X = np.vstack((corr_priors[:, 0:3], X))
+        for i in range (0, len(corr_priors)):
+            J[int(corr_priors[i, 3]), i] = 1
 
     X_flat = X.flatten()
     Y_flat = Y.flatten()
@@ -121,18 +130,38 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # the above array has size (N*3,), and is equivalent to X_hat.flatten(), where X_hat is
         X_hat = np.matmul(np.matmul(np.linalg.inv(np.diag(nu)), P), X)
 
-        # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
-        big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
-        T = np.eye(4)
-        T[0:3, 0:3] = s*R
-        T[0:3, 3] = t
-        T_inv = np.linalg.inv(T)
+        if corr_priors is not None:
+            nu_corr = np.sum(J, axis=1)
+            nu_corr_prime = np.sum(J, axis=0)
+            N_corr_hat = np.sum(nu_corr_prime)
+            nu_corr_tilde = np.kron(nu_corr, np.ones((3,)))
 
-        X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
-        Y_h = np.hstack((Y, np.ones((M, 1))))
-        residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
-        v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual  # this is *3 shape
-        v_hat_flat = v_hat.flatten()
+        # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
+        if corr_priors is None:
+            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
+            T = np.eye(4)
+            T[0:3, 0:3] = s*R
+            T[0:3, 3] = t
+            T_inv = np.linalg.inv(T)
+
+            X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
+            Y_h = np.hstack((Y, np.ones((M, 1))))
+            residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
+            v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual  # this is *3 shape
+            v_hat_flat = v_hat.flatten()
+        else:
+            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu) + s**2/zeta * np.diag(nu_corr))
+            T = np.eye(4)
+            T[0:3, 0:3] = s*R
+            T[0:3, 3] = t
+            T_inv = np.linalg.inv(T)
+
+            X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
+            Y_h = np.hstack((Y, np.ones((M, 1))))
+            residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
+
+            v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual + s**2/zeta * big_sigma @ np.diag(nu_corr) @ residual # this is *3 shape
+            v_hat_flat = v_hat.flatten()
 
         u_hat = Y + v_hat
         u_hat_flat = Y_flat + v_hat_flat
@@ -142,8 +171,9 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
 
         # ===== update s, R, t, sigma2, y_hat =====
         X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-        sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
         u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+
+        sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
 
         S_xu = np.zeros((3, 3))
         S_uu = np.zeros((3, 3))
@@ -152,6 +182,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
             S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
         S_xu /= N_hat
         S_uu /= N_hat
+
         S_uu += sigma2_bar*np.eye(3)
         U, _, Vt = np.linalg.svd(S_xu)
         middle_mat = np.eye(3)
@@ -168,6 +199,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
 
         nu_prime_tilde = np.kron(nu_prime, np.ones((3,)))
         sigma2 = 1/(N_hat*3) * (X_flat.reshape(1, N*3) @ np.diag(nu_prime_tilde) @ X_flat.reshape(N*3, 1) - 2*X_flat.reshape(1, N*3) @ P_tilde.T @ Y_hat.flatten() + (Y_hat.flatten()).reshape(1, M*3) @ np.diag(nu_tilde) @ (Y_hat.flatten())) + s**2 * sigma2_bar
+        sigma2 = sigma2[0, 0]
 
         # ===== check convergence =====
         if abs(sigma2 - prev_sigma2) < tol and np.amax(np.abs(Y_hat - prev_Y_hat)) < tol:
@@ -197,11 +229,13 @@ if __name__ == "__main__":
     Y = np.array(Y)
     f.close()
 
-    # ===== load X as target nodes =====
-    # f = open(data_dir + '001_nodes.json', 'rb')
-    # X, _ = pkl.load(f, encoding="bytes")
-    # X = np.array(X)
-    # f.close()
+    # ===== load correspondence priors =====
+    f = open(data_dir + 'nodes/001_nodes.json', 'rb')
+    Y_corr, _ = pkl.load(f, encoding="bytes")
+    f.close()
+    Y_corr = np.flip(Y_corr, 0)
+    Y_corr = np.array(Y_corr)[25:35, :]
+    Y_corr = np.hstack((Y_corr, np.arange(25, 35, 1).reshape(len(Y_corr), 1)))
 
     # ===== load X as target point cloud =====
     f = open(data_dir + '001_pcl.json', 'rb')
@@ -211,19 +245,23 @@ if __name__ == "__main__":
     X = np.array(X)
     X = X[::int(1/0.025)]
 
+    # occlusion
+    X = X[X[:, 0]< 0.12]
+
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=0.5, omega=0.05, lam=10, kappa=1e16, gamma=1, max_iter=50, tol=0.00001, sigma2_0=None)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=0.5, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.00001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-6)
 
     # test: show both sets of nodes
-    Y_pc = Points(Y, c=(255, 0, 0), r=10)
-    X_pc = Points(X, c=(0, 0, 255), r=3)
-    Y_hat_pc = Points(Y_hat, c=(0, 255, 0), r=10)
+    Y_pc = Points(Y, c=(255, 0, 0), r=15)
+    X_pc = Points(X, c=(0, 0, 0), r=5)
+    Y_hat_pc = Points(Y_hat, c=(0, 255, 0), r=15)
+    Y_corr_pc = Points(Y_corr[:, 0:3], c=(0, 0, 255), r=20)
     
     plt = Plotter()
-    plt.show(Y_pc, X_pc, Y_hat_pc)
+    plt.show(Y_pc, X_pc, Y_hat_pc, Y_corr_pc)
 
     # more frames?
-    num_of_frames = 10
+    num_of_frames = 0
     for i in range (2, num_of_frames):  # the next frame is frame 2
         sample_prefix = ''
         if len(str(i)) == 1:
