@@ -170,19 +170,45 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         alpha_m_bracket = np.full((M, N), alpha_m_bracket.reshape(M, 1))
 
         # ===== update s, R, t, sigma2, y_hat =====
-        X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-        u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+        if corr_priors is None:
+            X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
+            u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+
+            S_xu = np.zeros((3, 3))
+            S_uu = np.zeros((3, 3))
+            for m in range (0, M):
+                S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+                S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+            S_xu /= N_hat
+            S_uu /= N_hat
+
+        else:
+            X_bar_corr = np.sum(np.full((M, 3), nu_corr.reshape(M, 1))*X_hat, axis=0) / N_corr_hat
+            u_bar_corr = np.sum(np.full((M, 3), nu_corr.reshape(M, 1))*u_hat, axis=0) / N_corr_hat
+
+            S_xu_corr = np.zeros((3, 3))
+            S_uu_corr = np.zeros((3, 3))
+            for m in range (0, M):
+                S_xu_corr += nu_corr[m] * (X_hat[m] - X_bar_corr).reshape(3, 1) @ (u_hat[m] - u_bar_corr).reshape(1, 3)
+                S_uu_corr += nu_corr[m] * (u_hat[m] - u_bar_corr).reshape(3, 1) @ (u_hat[m] - u_bar_corr).reshape(1, 3)
+            S_xu_corr /= N_corr_hat
+            S_uu_corr /= N_corr_hat
+
+            X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
+            u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+
+            S_xu = np.zeros((3, 3))
+            S_uu = np.zeros((3, 3))
+            for m in range (0, M):
+                S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+                S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+            S_xu /= N_hat
+            S_uu /= N_hat
+
+            S_xu = (1/sigma2) / (1/sigma2 + 1/zeta) * S_xu + (1/zeta) / (1/sigma2 + 1/zeta) * S_xu_corr
+            S_uu = (1/sigma2) / (1/sigma2 + 1/zeta) * S_uu + (1/zeta) / (1/sigma2 + 1/zeta) * S_uu_corr
 
         sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
-
-        S_xu = np.zeros((3, 3))
-        S_uu = np.zeros((3, 3))
-        for m in range (0, M):
-            S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-            S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-        S_xu /= N_hat
-        S_uu /= N_hat
-
         S_uu += sigma2_bar*np.eye(3)
         U, _, Vt = np.linalg.svd(S_xu)
         middle_mat = np.eye(3)
@@ -249,13 +275,13 @@ if __name__ == "__main__":
     X = X[X[:, 0]< 0.12]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=0.5, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.00001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-6)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=0.5, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.00001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-8)
 
     # test: show both sets of nodes
-    Y_pc = Points(Y, c=(255, 0, 0), r=15)
-    X_pc = Points(X, c=(0, 0, 0), r=5)
-    Y_hat_pc = Points(Y_hat, c=(0, 255, 0), r=15)
-    Y_corr_pc = Points(Y_corr[:, 0:3], c=(0, 0, 255), r=20)
+    Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
+    X_pc = Points(X, c=(0, 0, 0), r=8)
+    Y_hat_pc = Points(Y_hat, c=(0, 255, 0), alpha=0.5, r=20)
+    Y_corr_pc = Points(Y_corr[:, 0:3], c=(0, 0, 255), alpha=0.5, r=20)
     
     plt = Plotter()
     plt.show(Y_pc, X_pc, Y_hat_pc, Y_corr_pc)
