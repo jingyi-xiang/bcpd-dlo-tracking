@@ -43,7 +43,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
 
     # initialize the J (MxN) matrix (if corr_priors is not None)
     # corr_priors should have format (index, x, y, z)
-    if corr_priors is not None:
+    if corr_priors is not None and len(corr_priors) != 0:
         N += len(corr_priors)
         J = np.zeros((M, N))
         X = np.vstack((corr_priors[:, 1:4], X))
@@ -127,14 +127,14 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # the above array has size (N*3,), and is equivalent to X_hat.flatten(), where X_hat is
         X_hat = np.matmul(np.matmul(np.linalg.inv(np.diag(nu)), P), X)
 
-        if corr_priors is not None:
+        if corr_priors is not None and len(corr_priors) != 0:
             nu_corr = np.sum(J, axis=1)
             nu_corr_prime = np.sum(J, axis=0)
             N_corr_hat = np.sum(nu_corr_prime)
             nu_corr_tilde = np.kron(nu_corr, np.ones((3,)))
 
         # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
-        if corr_priors is None:
+        if corr_priors is None or len(corr_priors) == 0:
             big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
             T = np.eye(4)
             T[0:3, 0:3] = s*R
@@ -167,7 +167,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         alpha_m_bracket = np.full((M, N), alpha_m_bracket.reshape(M, 1))
 
         # ===== update s, R, t, sigma2, y_hat =====
-        if corr_priors is None:
+        if corr_priors is None or len(corr_priors) == 0:
             X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
             u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
 
@@ -235,11 +235,6 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         prev_Y_hat = Y_hat.copy()
         prev_sigma2 = sigma2
 
-    # print(s)
-    # T_hat = np.eye(4)
-    # T_hat[0:3, 0:3] = R
-    # T_hat[0:3, 3] = t
-    # Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
     return Y_hat, sigma2
 
 if __name__ == "__main__":

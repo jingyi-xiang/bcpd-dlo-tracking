@@ -159,7 +159,7 @@ def cpd_lle (X, Y_0, beta, alpha, gamma, mu, max_iter=50, tol=0.00001, include_l
     Y = Y_0.copy()
 
     # initialize sigma2
-    if not use_prev_sigma2:
+    if (not use_prev_sigma2) or (sigma2_0 is None):
         (N, D) = X.shape
         (M, _) = Y.shape
         diff = X[None, :, :] - Y[:, None, :]
