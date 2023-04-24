@@ -68,27 +68,24 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     diff = np.sum(diff, 2)
     G = np.exp(-diff / (2 * beta**2))
 
-    # # geodesic distance
-    # seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
-    # converted_node_coord = []
-    # last_pt = 0
-    # converted_node_coord.append(last_pt)
-    # for i in range (1, M):
-    #     last_pt += seg_dis[i-1]
-    #     converted_node_coord.append(last_pt)
-    # converted_node_coord = np.array(converted_node_coord)
-    # converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
-    # converted_node_dis_sq = np.square(converted_node_dis)
-    # G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
+    # geodesic distance
+    seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
+    converted_node_coord = []
+    last_pt = 0
+    converted_node_coord.append(last_pt)
+    for i in range (1, M):
+        last_pt += seg_dis[i-1]
+        converted_node_coord.append(last_pt)
+    converted_node_coord = np.array(converted_node_coord)
+    converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
+    converted_node_dis_sq = np.square(converted_node_dis)
+    G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
 
-    # # G approximation
-    # eigen_values, eigen_vectors = np.linalg.eig(G)
-    # positive_indices = eigen_values > 0
-    # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
-    # # print(eigen_values.astype(np.float64))
-    # # print(type(G_hat[0, 0]))
-    # # return
-    # G = G_hat.astype(np.float64)
+    # G approximation
+    eigen_values, eigen_vectors = np.linalg.eig(G)
+    positive_indices = eigen_values > 0
+    G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    G = G_hat.astype(np.float64)
 
     # initialize sigma2
     if sigma2_0 is None:
@@ -260,8 +257,8 @@ if __name__ == "__main__":
     Y_corr, _ = pkl.load(f, encoding="bytes")
     f.close()
     Y_corr = np.flip(Y_corr, 0)
-    Y_corr = np.array(Y_corr)[25:35, :]
-    Y_corr = np.hstack((Y_corr, np.arange(25, 35, 1).reshape(len(Y_corr), 1)))
+    Y_corr = np.array(Y_corr)[0:30, :]
+    Y_corr = np.hstack((Y_corr, np.arange(0, 30, 1).reshape(len(Y_corr), 1)))
 
     # ===== load X as target point cloud =====
     f = open(data_dir + '001_pcl.json', 'rb')
@@ -275,7 +272,7 @@ if __name__ == "__main__":
     X = X[X[:, 0]< 0.12]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=0.5, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.00001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-8)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=5, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.00001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-8)
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
