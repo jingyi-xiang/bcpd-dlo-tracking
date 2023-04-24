@@ -452,6 +452,8 @@ nodes = []
 cur_time = time.time()
 sigma2 = 0
 guide_nodes = []
+geodesic_coord = []
+total_len = 0.0
 def callback (rgb, pc):
     global initialized
     global init_nodes
@@ -460,6 +462,8 @@ def callback (rgb, pc):
     global sigma2
     global occlusion_mask_rgb
     global guide_nodes
+    global geodesic_coord
+    global total_len
 
     # store header
     head =  std_msgs.msg.Header()
@@ -582,12 +586,42 @@ def callback (rgb, pc):
         else:
             sigma2 = None
             init_nodes = np.array(sort_pts(np.array(guide_nodes)))
+        
+        # compute preset coord and total len. one time action
+        seg_dis = np.sqrt(np.sum(np.square(np.diff(init_nodes, axis=0)), axis=1))
+        geodesic_coord = []
+        last_pt = 0
+        geodesic_coord.append(last_pt)
+        for i in range (1, len(init_nodes)):
+            last_pt += seg_dis[i-1]
+            geodesic_coord.append(last_pt)
+        geodesic_coord = np.array(geodesic_coord)
+        total_len = np.sum(np.sqrt(np.sum(np.square(np.diff(init_nodes, axis=0)), axis=1)))
 
         nodes = init_nodes
         initialized = True
         print("sigma2 =", sigma2)
         print("Initialized")
     else:
+        # determined which nodes are occluded from mask information
+        mask_dis_threshold = 10
+        # projection
+        init_nodes_h = np.hstack((init_nodes, np.ones((len(init_nodes), 1))))
+        image_coords = np.matmul(proj_matrix, init_nodes_h.T).T
+        us = (image_coords[:, 0] / image_coords[:, 2]).astype(int)
+        vs = (image_coords[:, 1] / image_coords[:, 2]).astype(int)
+
+        us = np.where(us >= 1280, 1279, us)
+        vs = np.where(vs >= 720, 719, vs)
+
+        uvs = np.vstack((vs, us)).T
+        uvs_t = tuple(map(tuple, uvs.T))
+
+        # invert bmask for distance transform
+        bmask_transformed = scipy.ndimage.distance_transform_edt(255 - bmask)
+        # bmask_transformed = bmask_transformed / np.amax(bmask_transformed)
+        vis = bmask_transformed[uvs_t]
+
         # ===== Parameters =====
         # X \in R^N  -- target point set
         # Y \in R^M  -- source point set 
@@ -603,55 +637,36 @@ def callback (rgb, pc):
         nodes /= 30
         init_nodes = nodes.copy()
 
-    # determined which nodes are occluded from mask information
-    mask_dis_threshold = 10
-    # projection
-    init_nodes_h = np.hstack((init_nodes, np.ones((len(init_nodes), 1))))
-    image_coords = np.matmul(proj_matrix, init_nodes_h.T).T
-    us = (image_coords[:, 0] / image_coords[:, 2]).astype(int)
-    vs = (image_coords[:, 1] / image_coords[:, 2]).astype(int)
+        # project and pub tracking image
+        nodes_h = np.hstack((nodes, np.ones((len(nodes), 1))))
 
-    us = np.where(us >= 1280, 1279, us)
-    vs = np.where(vs >= 720, 719, vs)
+        # proj_matrix: 3*4; nodes_h.T: 4*M; result: 3*M
+        image_coords = np.matmul(proj_matrix, nodes_h.T).T
+        us = (image_coords[:, 0] / image_coords[:, 2]).astype(int)
+        vs = (image_coords[:, 1] / image_coords[:, 2]).astype(int)
 
-    uvs = np.vstack((vs, us)).T
-    uvs_t = tuple(map(tuple, uvs.T))
+        cur_image_masked = cv2.bitwise_and(cur_image, occlusion_mask_rgb)
+        tracking_img = (cur_image*0.5 + cur_image_masked*0.5).astype(np.uint8)
 
-    # invert bmask for distance transform
-    bmask_transformed = scipy.ndimage.distance_transform_edt(255 - bmask)
-    # bmask_transformed = bmask_transformed / np.amax(bmask_transformed)
-    vis = bmask_transformed[uvs_t]
+        for i in range (len(image_coords)):
+            uv = (us[i], vs[i])
 
-    # project and pub tracking image
-    nodes_h = np.hstack((nodes, np.ones((len(nodes), 1))))
-
-    # proj_matrix: 3*4; nodes_h.T: 4*M; result: 3*M
-    image_coords = np.matmul(proj_matrix, nodes_h.T).T
-    us = (image_coords[:, 0] / image_coords[:, 2]).astype(int)
-    vs = (image_coords[:, 1] / image_coords[:, 2]).astype(int)
-
-    cur_image_masked = cv2.bitwise_and(cur_image, occlusion_mask_rgb)
-    tracking_img = (cur_image*0.5 + cur_image_masked*0.5).astype(np.uint8)
-
-    for i in range (len(image_coords)):
-        uv = (us[i], vs[i])
-
-        # draw line
-        if i != len(image_coords)-1:
+            # draw line
+            if i != len(image_coords)-1:
+                if vis[i] < mask_dis_threshold:
+                    cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (0, 255, 0), 2)
+                else:
+                    cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (255, 0, 0), 2)
+            
+            # draw circle
             if vis[i] < mask_dis_threshold:
-                cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (0, 255, 0), 2)
+                cv2.circle(tracking_img, uv, 5, (255, 150, 0), -1)
             else:
-                cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (255, 0, 0), 2)
+                cv2.circle(tracking_img, uv, 5, (255, 0, 0), -1)
         
-        # draw circle
-        if vis[i] < mask_dis_threshold:
-            cv2.circle(tracking_img, uv, 5, (255, 150, 0), -1)
-        else:
-            cv2.circle(tracking_img, uv, 5, (255, 0, 0), -1)
-    
-    tracking_img_msg = ros_numpy.msgify(Image, tracking_img, 'rgb8')
-    tracking_img_msg.header = head
-    tracking_img_pub.publish(tracking_img_msg)
+        tracking_img_msg = ros_numpy.msgify(Image, tracking_img, 'rgb8')
+        tracking_img_msg.header = head
+        tracking_img_pub.publish(tracking_img_msg)
 
     results = ndarray2MarkerArray(nodes, [255, 150, 0, 0.75], [0, 255, 0, 0.75], head)
     results_pub.publish(results)
