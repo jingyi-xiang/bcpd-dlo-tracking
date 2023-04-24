@@ -42,13 +42,13 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     M = len(Y)
 
     # initialize the J (MxN) matrix (if corr_priors is not None)
-    # corr_priors should have format (x, y, z, index)
+    # corr_priors should have format (index, x, y, z)
     if corr_priors is not None:
         N += len(corr_priors)
         J = np.zeros((M, N))
-        X = np.vstack((corr_priors[:, 0:3], X))
+        X = np.vstack((corr_priors[:, 1:4], X))
         for i in range (0, len(corr_priors)):
-            J[int(corr_priors[i, 3]), i] = 1
+            J[int(corr_priors[i, 0]), i] = 1
 
     X_flat = X.flatten()
     Y_flat = Y.flatten()
@@ -258,7 +258,7 @@ if __name__ == "__main__":
     f.close()
     Y_corr = np.flip(Y_corr, 0)
     Y_corr = np.array(Y_corr)[0:30, :]
-    Y_corr = np.hstack((Y_corr, np.arange(0, 30, 1).reshape(len(Y_corr), 1)))
+    Y_corr = np.hstack((np.arange(0, 30, 1).reshape(len(Y_corr), 1), Y_corr))
 
     # ===== load X as target point cloud =====
     f = open(data_dir + '001_pcl.json', 'rb')
@@ -278,7 +278,7 @@ if __name__ == "__main__":
     Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
     X_pc = Points(X, c=(0, 0, 0), r=8)
     Y_hat_pc = Points(Y_hat, c=(0, 255, 0), alpha=0.5, r=20)
-    Y_corr_pc = Points(Y_corr[:, 0:3], c=(0, 0, 255), alpha=0.5, r=20)
+    Y_corr_pc = Points(Y_corr[:, 1:4], c=(0, 0, 255), alpha=0.5, r=20)
     
     plt = Plotter()
     plt.show(Y_pc, X_pc, Y_hat_pc, Y_corr_pc)
