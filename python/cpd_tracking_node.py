@@ -155,9 +155,6 @@ def cpd_lle (X, Y_0, beta, alpha, gamma, mu, max_iter=50, tol=0.00001, include_l
 
         # Gaussian Kernel
         G = np.exp(-converted_node_dis_sq / (2 * beta**2))
-
-        # temp
-        # G[converted_node_dis > 0.07] = 0
     
     Y = Y_0.copy()
 
@@ -568,12 +565,7 @@ def callback (rgb, pc):
     tracking_img = (cur_image*0.5 + cur_image_masked*0.5).astype(np.uint8)
 
     for i in range (len(image_coords)):
-        # draw circle
         uv = (us[i], vs[i])
-        if vis[i] < mask_dis_threshold:
-            cv2.circle(tracking_img, uv, 5, (255, 150, 0), -1)
-        else:
-            cv2.circle(tracking_img, uv, 5, (255, 0, 0), -1)
 
         # draw line
         if i != len(image_coords)-1:
@@ -581,6 +573,12 @@ def callback (rgb, pc):
                 cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (0, 255, 0), 2)
             else:
                 cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (255, 0, 0), 2)
+        
+        # draw circle
+        if vis[i] < mask_dis_threshold:
+            cv2.circle(tracking_img, uv, 5, (255, 150, 0), -1)
+        else:
+            cv2.circle(tracking_img, uv, 5, (255, 0, 0), -1)
     
     tracking_img_msg = ros_numpy.msgify(Image, tracking_img, 'rgb8')
     tracking_img_msg.header = head

@@ -23,6 +23,8 @@ import sensor_msgs.point_cloud2 as pcl2
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
+from cpd_tracking_node import cpd_lle
+
 def pt2pt_dis_sq(pt1, pt2):
     return np.sum(np.square(pt1 - pt2))
 
@@ -88,10 +90,19 @@ def register(pts, M, mu=0, max_iter=10):
     # print(repr(new_x), new_s)
     return new_Y, new_s
 
-def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None):
+def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None, corr_priors = None, zeta = None):
     # ===== initialization =====
     N = len(X)
     M = len(Y)
+
+    # initialize the J (MxN) matrix (if corr_priors is not None)
+    # corr_priors should have format (x, y, z, index)
+    if corr_priors is not None:
+        N += len(corr_priors)
+        J = np.zeros((M, N))
+        X = np.vstack((corr_priors[:, 0:3], X))
+        for i in range (0, len(corr_priors)):
+            J[int(corr_priors[i, 3]), i] = 1
 
     X_flat = X.flatten()
     Y_flat = Y.flatten()
@@ -111,27 +122,24 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     diff = np.sum(diff, 2)
     G = np.exp(-diff / (2 * beta**2))
 
-    # # geodesic distance
-    # seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
-    # converted_node_coord = []
-    # last_pt = 0
-    # converted_node_coord.append(last_pt)
-    # for i in range (1, M):
-    #     last_pt += seg_dis[i-1]
-    #     converted_node_coord.append(last_pt)
-    # converted_node_coord = np.array(converted_node_coord)
-    # converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
-    # converted_node_dis_sq = np.square(converted_node_dis)
-    # G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
+    # geodesic distance
+    seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
+    converted_node_coord = []
+    last_pt = 0
+    converted_node_coord.append(last_pt)
+    for i in range (1, M):
+        last_pt += seg_dis[i-1]
+        converted_node_coord.append(last_pt)
+    converted_node_coord = np.array(converted_node_coord)
+    converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
+    converted_node_dis_sq = np.square(converted_node_dis)
+    G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
 
-    # # G approximation
-    # eigen_values, eigen_vectors = np.linalg.eig(G)
-    # positive_indices = eigen_values > 0
-    # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
-    # # print(eigen_values.astype(np.float64))
-    # # print(type(G_hat[0, 0]))
-    # # return
-    # G = G_hat.astype(np.float64)
+    # G approximation
+    eigen_values, eigen_vectors = np.linalg.eig(G)
+    positive_indices = eigen_values > 0
+    G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    G = G_hat.astype(np.float64)
 
     # initialize sigma2
     if sigma2_0 is None:
@@ -173,18 +181,38 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # the above array has size (N*3,), and is equivalent to X_hat.flatten(), where X_hat is
         X_hat = np.matmul(np.matmul(np.linalg.inv(np.diag(nu)), P), X)
 
-        # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
-        big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
-        T = np.eye(4)
-        T[0:3, 0:3] = s*R
-        T[0:3, 3] = t
-        T_inv = np.linalg.inv(T)
+        if corr_priors is not None:
+            nu_corr = np.sum(J, axis=1)
+            nu_corr_prime = np.sum(J, axis=0)
+            N_corr_hat = np.sum(nu_corr_prime)
+            nu_corr_tilde = np.kron(nu_corr, np.ones((3,)))
 
-        X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
-        Y_h = np.hstack((Y, np.ones((M, 1))))
-        residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
-        v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual  # this is *3 shape
-        v_hat_flat = v_hat.flatten()
+        # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
+        if corr_priors is None:
+            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
+            T = np.eye(4)
+            T[0:3, 0:3] = s*R
+            T[0:3, 3] = t
+            T_inv = np.linalg.inv(T)
+
+            X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
+            Y_h = np.hstack((Y, np.ones((M, 1))))
+            residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
+            v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual  # this is *3 shape
+            v_hat_flat = v_hat.flatten()
+        else:
+            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu) + s**2/zeta * np.diag(nu_corr))
+            T = np.eye(4)
+            T[0:3, 0:3] = s*R
+            T[0:3, 3] = t
+            T_inv = np.linalg.inv(T)
+
+            X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
+            Y_h = np.hstack((Y, np.ones((M, 1))))
+            residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
+
+            v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual + s**2/zeta * big_sigma @ np.diag(nu_corr) @ residual # this is *3 shape
+            v_hat_flat = v_hat.flatten()
 
         u_hat = Y + v_hat
         u_hat_flat = Y_flat + v_hat_flat
@@ -193,17 +221,45 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         alpha_m_bracket = np.full((M, N), alpha_m_bracket.reshape(M, 1))
 
         # ===== update s, R, t, sigma2, y_hat =====
-        X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-        sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
-        u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+        if corr_priors is None:
+            X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
+            u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
 
-        S_xu = np.zeros((3, 3))
-        S_uu = np.zeros((3, 3))
-        for m in range (0, M):
-            S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-            S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-        S_xu /= N_hat
-        S_uu /= N_hat
+            S_xu = np.zeros((3, 3))
+            S_uu = np.zeros((3, 3))
+            for m in range (0, M):
+                S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+                S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+            S_xu /= N_hat
+            S_uu /= N_hat
+
+        else:
+            X_bar_corr = np.sum(np.full((M, 3), nu_corr.reshape(M, 1))*X_hat, axis=0) / N_corr_hat
+            u_bar_corr = np.sum(np.full((M, 3), nu_corr.reshape(M, 1))*u_hat, axis=0) / N_corr_hat
+
+            S_xu_corr = np.zeros((3, 3))
+            S_uu_corr = np.zeros((3, 3))
+            for m in range (0, M):
+                S_xu_corr += nu_corr[m] * (X_hat[m] - X_bar_corr).reshape(3, 1) @ (u_hat[m] - u_bar_corr).reshape(1, 3)
+                S_uu_corr += nu_corr[m] * (u_hat[m] - u_bar_corr).reshape(3, 1) @ (u_hat[m] - u_bar_corr).reshape(1, 3)
+            S_xu_corr /= N_corr_hat
+            S_uu_corr /= N_corr_hat
+
+            X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
+            u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+
+            S_xu = np.zeros((3, 3))
+            S_uu = np.zeros((3, 3))
+            for m in range (0, M):
+                S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+                S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+            S_xu /= N_hat
+            S_uu /= N_hat
+
+            S_xu = (1/sigma2) / (1/sigma2 + 1/zeta) * S_xu + (1/zeta) / (1/sigma2 + 1/zeta) * S_xu_corr
+            S_uu = (1/sigma2) / (1/sigma2 + 1/zeta) * S_uu + (1/zeta) / (1/sigma2 + 1/zeta) * S_uu_corr
+
+        sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
         S_uu += sigma2_bar*np.eye(3)
         U, _, Vt = np.linalg.svd(S_xu)
         middle_mat = np.eye(3)
@@ -220,6 +276,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
 
         nu_prime_tilde = np.kron(nu_prime, np.ones((3,)))
         sigma2 = 1/(N_hat*3) * (X_flat.reshape(1, N*3) @ np.diag(nu_prime_tilde) @ X_flat.reshape(N*3, 1) - 2*X_flat.reshape(1, N*3) @ P_tilde.T @ Y_hat.flatten() + (Y_hat.flatten()).reshape(1, M*3) @ np.diag(nu_tilde) @ (Y_hat.flatten())) + s**2 * sigma2_bar
+        sigma2 = sigma2[0, 0]
 
         # ===== check convergence =====
         if abs(sigma2 - prev_sigma2) < tol and np.amax(np.abs(Y_hat - prev_Y_hat)) < tol:
@@ -232,11 +289,6 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         prev_Y_hat = Y_hat.copy()
         prev_sigma2 = sigma2
 
-    # print(s)
-    # T_hat = np.eye(4)
-    # T_hat[0:3, 0:3] = R
-    # T_hat[0:3, 3] = t
-    # Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
     return Y_hat, sigma2
 
 def sort_pts(Y_0):
@@ -399,6 +451,7 @@ init_nodes = []
 nodes = []
 cur_time = time.time()
 sigma2 = 0
+guide_nodes = []
 def callback (rgb, pc):
     global initialized
     global init_nodes
@@ -406,6 +459,7 @@ def callback (rgb, pc):
     global cur_time
     global sigma2
     global occlusion_mask_rgb
+    global guide_nodes
 
     # store header
     head =  std_msgs.msg.Header()
@@ -449,6 +503,27 @@ def callback (rgb, pc):
 
         # combine masks
         mask = cv2.bitwise_or(mask_marker.copy(), mask_dlo.copy())
+
+        # blob detection
+        blob_params = cv2.SimpleBlobDetector_Params()
+        blob_params.filterByColor = False
+        blob_params.filterByArea = True
+        blob_params.filterByCircularity = False
+        blob_params.filterByInertia = True
+        blob_params.filterByConvexity = False
+
+        # Create a detector with the parameters
+        detector = cv2.SimpleBlobDetector_create(blob_params)
+        keypoints = detector.detect(mask_marker)
+
+        # Find blob centers in the image coordinates
+        blob_image_center = []
+        guide_nodes = []
+        num_blobs = len(keypoints)
+
+        for i in range(num_blobs):
+            blob_image_center.append((keypoints[i].pt[0],keypoints[i].pt[1]))
+            guide_nodes.append(cur_pc[int(keypoints[i].pt[1]), int(keypoints[i].pt[0])])
 
     # process opencv mask
     if occlusion_mask_rgb is None:
@@ -498,11 +573,16 @@ def callback (rgb, pc):
 
     # register nodes
     if not initialized:
-        filtered_pc *= 30
-        init_nodes, sigma2 = register(filtered_pc, 30, mu=0, max_iter=50)
-        init_nodes = np.array(sort_pts(init_nodes))
-        filtered_pc /= 30
-        init_nodes /= 30
+        if not use_marker_rope:
+            filtered_pc *= 30
+            init_nodes, sigma2 = register(filtered_pc, 30, mu=0, max_iter=50)
+            init_nodes = np.array(sort_pts(init_nodes))
+            filtered_pc /= 30
+            init_nodes /= 30
+        else:
+            sigma2 = None
+            init_nodes = np.array(sort_pts(np.array(guide_nodes)))
+
         nodes = init_nodes
         initialized = True
         print("sigma2 =", sigma2)
@@ -554,12 +634,7 @@ def callback (rgb, pc):
     tracking_img = (cur_image*0.5 + cur_image_masked*0.5).astype(np.uint8)
 
     for i in range (len(image_coords)):
-        # draw circle
         uv = (us[i], vs[i])
-        if vis[i] < mask_dis_threshold:
-            cv2.circle(tracking_img, uv, 5, (255, 150, 0), -1)
-        else:
-            cv2.circle(tracking_img, uv, 5, (255, 0, 0), -1)
 
         # draw line
         if i != len(image_coords)-1:
@@ -567,6 +642,12 @@ def callback (rgb, pc):
                 cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (0, 255, 0), 2)
             else:
                 cv2.line(tracking_img, uv, (us[i+1], vs[i+1]), (255, 0, 0), 2)
+        
+        # draw circle
+        if vis[i] < mask_dis_threshold:
+            cv2.circle(tracking_img, uv, 5, (255, 150, 0), -1)
+        else:
+            cv2.circle(tracking_img, uv, 5, (255, 0, 0), -1)
     
     tracking_img_msg = ros_numpy.msgify(Image, tracking_img, 'rgb8')
     tracking_img_msg.header = head
