@@ -90,7 +90,7 @@ void bcpd_tracker::bcpd (MatrixXf X,
     MatrixXf alpha_m_bracket = MatrixXf::Ones(M, N) / M;
     double s = 1;
     MatrixXf R = MatrixXf::Identity(3, 3);
-    MatrixXf t = MatrixXf::Zero(1, 3);
+    MatrixXf t = MatrixXf::Zero(3, 1);
     
     // initialize G
     MatrixXf diff_yy = MatrixXf::Zero(M, M);
@@ -119,12 +119,12 @@ void bcpd_tracker::bcpd (MatrixXf X,
     MatrixXf prev_Y_hat = Y_hat.replicate(1, 1);
     double prev_sigma2 = sigma2;
 
-    for (int i = 0; i < max_iter; i ++) {
-        MatrixXf Y_hat_flat = Y_hat.replicate(1, 1);
-        Y_hat_flat.resize(M*3, 1);
-        MatrixXf v_hat_flat = v_hat.replicate(1, 1);
-        v_hat_flat.resize(M*3, 1);
+    MatrixXf Y_hat_flat = Y_hat.replicate(1, 1);
+    Y_hat_flat.resize(M*3, 1);
+    MatrixXf v_hat_flat = v_hat.replicate(1, 1);
+    v_hat_flat.resize(M*3, 1);
 
+    for (int i = 0; i < max_iter; i ++) {
         // ===== update P and related terms =====
         diff_xy = MatrixXf::Zero(M, N);
         for (int i = 0; i < M; i ++) {
@@ -147,9 +147,9 @@ void bcpd_tracker::bcpd (MatrixXf X,
         double N_hat = P.sum();
 
         // compute X_hat
-        MatrixXf nu_tilde = Eigen::kroneckerProduct(nu, MatrixXf::Identity(3, 3));
+        MatrixXf nu_tilde = Eigen::kroneckerProduct(nu, MatrixXf::Constant(1, 3, 1.0));
         MatrixXf P_tilde = Eigen::kroneckerProduct(P, MatrixXf::Identity(3, 3));
-        MatrixXf X_hat_flat = nu_tilde.asDiagonal().inverse() * P_tilde * X_flat;
+        MatrixXf X_hat_flat = (nu_tilde.asDiagonal().inverse()) * P_tilde * X_flat;
         MatrixXf X_hat = nu.asDiagonal().inverse() * P * X;
 
         // ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
@@ -167,6 +167,7 @@ void bcpd_tracker::bcpd (MatrixXf X,
         MatrixXf Y_h = Y.replicate(1, 1);
         Y_h.conservativeResize(Y.rows(), Y_h.cols()+1);
         Y_h.col(Y_h.cols()-1) = MatrixXf::Ones(Y_h.rows(), 1);
+
         MatrixXf residual= ((T_inv * X_hat_h.transpose()).transpose() - Y_h).leftCols(3);
         MatrixXf v_hat = pow(s, 2)/sigma2 * big_sigma * nu.asDiagonal() * residual;
         v_hat_flat = v_hat.replicate(1, 1);
@@ -184,8 +185,10 @@ void bcpd_tracker::bcpd (MatrixXf X,
         alpha_m_bracket = alpha_m_bracket.replicate(1, N);
 
         // ===== update s, R, t, sigma2, y_hat =====
-        MatrixXf X_bar = (nu.replicate(1, 3) * X_hat).colwise().sum() / N_hat;
-        MatrixXf u_bar = (nu.replicate(1, 3) * u_hat).colwise().sum() / N_hat;
+        // nu is M by 1
+        MatrixXf X_bar = (nu.replicate(1, 3).cwiseProduct(X_hat)).colwise().sum() / N_hat;
+        MatrixXf u_bar = (nu.replicate(1, 3).cwiseProduct(u_hat)).colwise().sum() / N_hat;
+        // X_bar is 1 by 3
         double sigma2_bar = (nu*sigma2).sum() / N_hat;
 
         MatrixXf S_xu = MatrixXf::Zero(3, 3);
@@ -195,8 +198,8 @@ void bcpd_tracker::bcpd (MatrixXf X,
             MatrixXf u_diff = u_hat.row(m) - u_bar;
             X_diff.resize(3, 1);
             u_diff.resize(1, 3);
-            S_xu += nu.row(m) * (X_diff * u_diff);
-            S_uu += nu.row(m) * (u_diff.transpose() * u_diff);
+            S_xu += nu(m, 0) * (X_diff * u_diff);
+            S_uu += nu(m, 0) * (u_diff.transpose() * u_diff);
         }
         S_xu /= N_hat;
         S_uu /= N_hat;
@@ -211,18 +214,21 @@ void bcpd_tracker::bcpd (MatrixXf X,
         R = U * middle_mat * Vt;
 
         s = (R * S_xu).trace() / S_uu.trace();
-        t = X_bar - s*R*u_bar;
+        t = X_bar.transpose() - s*R*u_bar.transpose();
 
         MatrixXf T_hat = MatrixXf::Identity(4, 4);
         T_hat.block<3, 3>(0, 0) = s*R;
         T_hat.block<3, 1>(0, 3) = t;
+
         MatrixXf Y_hat_h = Y_hat.replicate(1, 1);
         Y_hat_h.conservativeResize(Y_hat.rows(), Y_hat.cols()+1);
         Y_hat_h.col(Y_hat_h.cols()-1) = MatrixXf::Ones(Y_hat_h.rows(), 1);
-        Y_hat = (T_hat * Y_hat_h.transpose()).leftCols(3).transpose();
+        Y_hat = (T_hat * Y_hat_h.transpose()).transpose().leftCols(3);
+        Y_hat_flat = Y_hat.replicate(1, 1);
+        Y_hat_flat.resize(M*3, 1);
     
         MatrixXf nu_prime_tilde = Eigen::kroneckerProduct(nu_prime, MatrixXf::Constant(1, 3, 1.0));
-        MatrixXf sigma2_mat = 1/(N_hat*3) * (X_flat.transpose()*nu_prime_tilde.asDiagonal()*X_flat - 2*X_flat.transpose()*P_tilde*Y_hat_flat + Y_hat_flat.transpose()*nu_tilde.asDiagonal()) + pow(s, 2) * MatrixXf::Constant(1, 1, sigma2_bar);
+        MatrixXf sigma2_mat = 1/(N_hat*3) * (X_flat.transpose()*nu_prime_tilde.asDiagonal()*X_flat - 2*X_flat.transpose()*P_tilde.transpose()*Y_hat_flat + Y_hat_flat.transpose()*nu_tilde.asDiagonal()*Y_hat_flat) + pow(s, 2) * MatrixXf::Constant(1, 1, sigma2_bar);
         sigma2 = sigma2_mat(0, 0);
 
         // ===== check convergence =====

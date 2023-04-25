@@ -266,7 +266,7 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                 
                 tracker = bcpd_tracker(Y_0_sorted.rows(), beta, lambda, omega, kappa, gam, max_iter, tol, use_prev_sigma2);
 
-                sigma2 = 0.001;
+                sigma2 = 0.0;
 
                 // record geodesic coord
                 double cur_sum = 0;
