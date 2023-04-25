@@ -50,7 +50,6 @@
 #define BCPD_TRACKER_H
 
 using Eigen::MatrixXd;
-using Eigen::MatrixXf;
 using cv::Mat;
 
 class bcpd_tracker
@@ -71,8 +70,8 @@ class bcpd_tracker
                      bool use_prev_sigma2);
 
         double get_sigma2();
-        MatrixXf get_tracking_result();
-        void initialize_nodes (MatrixXf Y_init);
+        MatrixXd get_tracking_result();
+        void initialize_nodes (MatrixXd Y_init);
         void set_sigma2 (double sigma2);
 
         // ===== Parameters =====
@@ -82,8 +81,8 @@ class bcpd_tracker
         // omega      -- the outlier probability
         // kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         // gamma      -- the scale factor of sigma2_0
-        void bcpd (MatrixXf X,
-                   MatrixXf& Y_hat,
+        void bcpd (MatrixXd X,
+                   MatrixXd& Y_hat,
                    double& sigma2,
                    double beta,
                    double lambda,
@@ -95,7 +94,7 @@ class bcpd_tracker
                    bool use_prev_sigma2 = false);
 
     private:
-        MatrixXf Y_;
+        MatrixXd Y_;
         double sigma2_;
         double beta_;
         double lambda_;

@@ -2,7 +2,6 @@
 #include "../include/bcpd_tracker.h"
 
 using Eigen::MatrixXd;
-using Eigen::MatrixXf;
 using Eigen::RowVectorXf;
 using Eigen::RowVectorXd;
 using cv::Mat;
@@ -12,7 +11,7 @@ bcpd_tracker::bcpd_tracker () {}
 bcpd_tracker::bcpd_tracker(int num_of_nodes) 
 {
     // default initialize
-    Y_ = MatrixXf::Zero(num_of_nodes, 3);
+    Y_ = MatrixXd::Zero(num_of_nodes, 3);
     sigma2_ = 0.0;
     beta_ = 0.1;
     omega_ = 0.05;
@@ -34,7 +33,7 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes,
                            const double tol,
                            bool use_prev_sigma2)
 {
-    Y_ = MatrixXf::Zero(num_of_nodes, 3);
+    Y_ = MatrixXd::Zero(num_of_nodes, 3);
     sigma2_ = 0.0;
     beta_ = beta;
     omega_ = omega;
@@ -50,11 +49,11 @@ double bcpd_tracker::get_sigma2 () {
     return sigma2_;
 }
 
-MatrixXf bcpd_tracker::get_tracking_result () {
+MatrixXd bcpd_tracker::get_tracking_result () {
     return Y_;
 }
 
-void bcpd_tracker::initialize_nodes (MatrixXf Y_init) {
+void bcpd_tracker::initialize_nodes (MatrixXd Y_init) {
     Y_ = Y_init.replicate(1, 1);
 }
 
@@ -62,8 +61,8 @@ void bcpd_tracker::set_sigma2 (double sigma2) {
     sigma2_ = sigma2;
 }
 
-void bcpd_tracker::bcpd (MatrixXf X,
-                         MatrixXf& Y_hat,
+void bcpd_tracker::bcpd (MatrixXd X,
+                         MatrixXd& Y_hat,
                          double& sigma2,
                          double beta,
                          double lambda,
@@ -78,124 +77,155 @@ void bcpd_tracker::bcpd (MatrixXf X,
     int M = Y_hat.rows();
     int N = X.rows();
 
-    MatrixXf X_flat = X.replicate(1, 1);
+    MatrixXd X_flat = X.replicate(1, 1);
     X_flat.resize(N*3, 1);
-    MatrixXf Y_flat = Y_hat.replicate(1, 1);
+    MatrixXd Y_flat = Y_hat.replicate(1, 1);
     Y_flat.resize(M*3, 1);
 
-    MatrixXf Y = Y_hat.replicate(1, 1);
-    MatrixXf v_hat = MatrixXf::Zero(M, 3);
+    MatrixXd Y = Y_hat.replicate(1, 1);
+    MatrixXd v_hat = MatrixXd::Zero(M, 3);
 
-    MatrixXf big_sigma = MatrixXf::Identity(M, M);
-    MatrixXf alpha_m_bracket = MatrixXf::Ones(M, N) / M;
+    MatrixXd big_sigma = MatrixXd::Identity(M, M);
+    MatrixXd alpha_m_bracket = MatrixXd::Ones(M, N) / M;
     double s = 1;
-    MatrixXf R = MatrixXf::Identity(3, 3);
-    MatrixXf t = MatrixXf::Zero(3, 1);
+    MatrixXd R = MatrixXd::Identity(3, 3);
+    MatrixXd t = MatrixXd::Zero(3, 1);
     
     // initialize G
-    MatrixXf diff_yy = MatrixXf::Zero(M, M);
-    MatrixXf diff_yy_sqrt = MatrixXf::Zero(M, M);
+    MatrixXd diff_yy = MatrixXd::Zero(M, M);
+    MatrixXd diff_yy_sqrt = MatrixXd::Zero(M, M);
     for (int i = 0; i < M; i ++) {
         for (int j = 0; j < M; j ++) {
             diff_yy(i, j) = (Y.row(i) - Y.row(j)).squaredNorm();
             diff_yy_sqrt(i, j) = (Y.row(i) - Y.row(j)).norm();
         }
     }
-    MatrixXf G = (-diff_yy / (2 * beta * beta)).array().exp();
+    MatrixXd G = (-diff_yy / (2 * beta * beta)).array().exp();
+
+    // big_sigma += G;
 
     // Initialize sigma2
-    MatrixXf diff_xy = MatrixXf::Zero(M, N);
+    MatrixXd diff_xy = MatrixXd::Zero(M, N);
     for (int i = 0; i < M; i ++) {
         for (int j = 0; j < N; j ++) {
             diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
         }
     }
     if (!use_prev_sigma2 || sigma2 == 0) {
-        sigma2 = diff_xy.sum() / static_cast<double>(3 * M * N);
+        sigma2 = gamma * diff_xy.sum() / static_cast<double>(3 * M * N);
     }
 
     // ===== log time and initial values =====
     std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-    MatrixXf prev_Y_hat = Y_hat.replicate(1, 1);
+    MatrixXd prev_Y_hat = Y_hat.replicate(1, 1);
     double prev_sigma2 = sigma2;
 
-    MatrixXf Y_hat_flat = Y_hat.replicate(1, 1);
+    MatrixXd Y_hat_flat = Y_hat.replicate(1, 1);
     Y_hat_flat.resize(M*3, 1);
-    MatrixXf v_hat_flat = v_hat.replicate(1, 1);
+    MatrixXd v_hat_flat = v_hat.replicate(1, 1);
     v_hat_flat.resize(M*3, 1);
 
-    for (int i = 0; i < max_iter; i ++) {
+    for (int it = 0; it < max_iter; it ++) {
+        std::cout << "---- iteration -----" << std::endl;
+        std::cout << it << std::endl;
+
         // ===== update P and related terms =====
-        diff_xy = MatrixXf::Zero(M, N);
+        diff_xy = MatrixXd::Zero(M, N);
         for (int i = 0; i < M; i ++) {
             for (int j = 0; j < N; j ++) {
-                diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
+                diff_xy(i, j) = (Y_hat.row(i) - X.row(j)).squaredNorm();
             }
         }
-        MatrixXf phi_mn_bracket_1 = (-0.5 * diff_xy / sigma2).array().exp() * pow(2*M_PI*sigma2, -3.0/2.0) * (1-omega);  // this is M by N
-        MatrixXf phi_mn_bracket_2 = (-pow(s, 2) / (2*sigma2) * 3 * big_sigma.diagonal()).array().exp();  // this is M by 1 or 1 by M. more likely 1 by M
+        MatrixXd phi_mn_bracket_1 = pow(2*M_PI*sigma2, -3.0/2.0) * (1-omega) * (-0.5 * diff_xy / sigma2).array().exp();  // this is M by N
+        MatrixXd phi_mn_bracket_2 = (-pow(s, 2) / (2*sigma2) * 3 * big_sigma.diagonal()).array().exp();  // this is M by 1 or 1 by M. more likely 1 by M
+        
+        std::cout << "=== phi_mn_bracket_2 ===" << std::endl;
+        std::cout << phi_mn_bracket_2 << std::endl;
+        std::cout << sigma2 << std::endl;
+        std::cout << exp(-pow(s, 2) / (2*sigma2) * 3) << std::endl;
+        
         phi_mn_bracket_2.resize(M, 1);
         phi_mn_bracket_2 = phi_mn_bracket_2.replicate(1, N);  // expand to M by N
-        MatrixXf P = (phi_mn_bracket_1.cwiseProduct(phi_mn_bracket_2)).cwiseProduct(alpha_m_bracket);
+        MatrixXd P = (phi_mn_bracket_1.cwiseProduct(phi_mn_bracket_2)).cwiseProduct(alpha_m_bracket);
         double c = omega / N;
         P = P.array().rowwise() / (P.colwise().sum().array() + c);
 
-        // MatrixXf P1 = P.rowwise().sum();
-        // MatrixXf Pt1 = P.colwise().sum();
-        MatrixXf nu = P.rowwise().sum();
-        MatrixXf nu_prime = P.colwise().sum();
+        std::cout << "=== P.rowwise().sum() ===" << std::endl;
+        std::cout << P.rowwise().sum() << std::endl;
+
+        // MatrixXd P1 = P.rowwise().sum();
+        // MatrixXd Pt1 = P.colwise().sum();
+        MatrixXd nu = P.rowwise().sum();
+        MatrixXd nu_prime = P.colwise().sum();
         double N_hat = P.sum();
+        std::cout << "=== N_hat ===" << std::endl;
+        std::cout << N_hat << std::endl; 
 
         // compute X_hat
-        MatrixXf nu_tilde = Eigen::kroneckerProduct(nu, MatrixXf::Constant(1, 3, 1.0));
-        MatrixXf P_tilde = Eigen::kroneckerProduct(P, MatrixXf::Identity(3, 3));
-        MatrixXf X_hat_flat = (nu_tilde.asDiagonal().inverse()) * P_tilde * X_flat;
-        MatrixXf X_hat = nu.asDiagonal().inverse() * P * X;
+        MatrixXd nu_tilde = Eigen::kroneckerProduct(nu, MatrixXd::Constant(1, 3, 1.0));
+        MatrixXd P_tilde = Eigen::kroneckerProduct(P, MatrixXd::Identity(3, 3));
+        // MatrixXd X_hat_flat = (nu_tilde.asDiagonal().inverse()) * P_tilde * X_flat;
+        MatrixXd X_hat = nu.asDiagonal().inverse() * P * X;
+
+        for (int m = 0; m < M; m ++) {
+            if (nu(m, 0) == 0.0) {
+                X_hat(m, 0) = 0.0;
+                X_hat(m, 1) = 0.0;
+                X_hat(m, 2) = 0.0;
+            }
+        }
+
+        // std::cout << "=== X_hat_flat ===" << std::endl;
+        // std::cout << X_hat_flat << std::endl;
+        std::cout << "=== X_hat ===" << std::endl;
+        std::cout << X_hat << std::endl;
 
         // ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
         big_sigma = lambda * G.inverse();
         big_sigma += pow(s, 2)/sigma2 * nu.asDiagonal();
         big_sigma = big_sigma.inverse();
-        MatrixXf T = MatrixXf::Identity(4, 4);
-        T.block<3, 3>(0, 0) = R;
+        MatrixXd T = MatrixXd::Identity(4, 4);
+        T.block<3, 3>(0, 0) = s*R;
         T.block<3, 1>(0, 3) = t;
-        MatrixXf T_inv = T.inverse();
+        MatrixXd T_inv = T.inverse();
 
-        MatrixXf X_hat_h = X_hat.replicate(1, 1);
+        MatrixXd X_hat_h = X_hat.replicate(1, 1);
         X_hat_h.conservativeResize(X_hat_h.rows(), X_hat_h.cols()+1);
-        X_hat_h.col(X_hat_h.cols()-1) = MatrixXf::Ones(X_hat_h.rows(), 1);
-        MatrixXf Y_h = Y.replicate(1, 1);
+        X_hat_h.col(X_hat_h.cols()-1) = MatrixXd::Ones(X_hat_h.rows(), 1);
+        MatrixXd Y_h = Y.replicate(1, 1);
         Y_h.conservativeResize(Y.rows(), Y_h.cols()+1);
-        Y_h.col(Y_h.cols()-1) = MatrixXf::Ones(Y_h.rows(), 1);
+        Y_h.col(Y_h.cols()-1) = MatrixXd::Ones(Y_h.rows(), 1);
 
-        MatrixXf residual= ((T_inv * X_hat_h.transpose()).transpose() - Y_h).leftCols(3);
-        MatrixXf v_hat = pow(s, 2)/sigma2 * big_sigma * nu.asDiagonal() * residual;
+        MatrixXd residual= ((T_inv * X_hat_h.transpose()).transpose() - Y_h).leftCols(3);
+        MatrixXd v_hat = pow(s, 2)/sigma2 * big_sigma * nu.asDiagonal() * residual;
         v_hat_flat = v_hat.replicate(1, 1);
         v_hat_flat.resize(v_hat.rows()*v_hat.cols(), 1);
 
-        MatrixXf u_hat = Y + v_hat;
-        MatrixXf u_hat_flat = Y_flat + v_hat_flat;
+        MatrixXd u_hat = Y + v_hat;
+        MatrixXd u_hat_flat = Y_flat + v_hat_flat;
 
-        MatrixXf alpha_m_bracket_1 = MatrixXf::Constant(nu.rows(), nu.cols(), kappa) + nu;
-        MatrixXf alpha_m_bracket_2 = MatrixXf::Constant(nu.rows(), nu.cols(), kappa*M + N_hat);
-        alpha_m_bracket_1 = Eigen::digamma(alpha_m_bracket_1.array());
-        alpha_m_bracket_2 = Eigen::digamma(alpha_m_bracket_2.array());
-        alpha_m_bracket = (alpha_m_bracket_1 - alpha_m_bracket_2).array().exp();
-        alpha_m_bracket.resize(M, 1);
-        alpha_m_bracket = alpha_m_bracket.replicate(1, N);
+        // MatrixXd alpha_m_bracket_1 = MatrixXd::Constant(nu.rows(), nu.cols(), kappa) + nu;
+        // MatrixXd alpha_m_bracket_2 = MatrixXd::Constant(nu.rows(), nu.cols(), kappa*M + N_hat);
+        // alpha_m_bracket_1 = Eigen::digamma(alpha_m_bracket_1.array());
+        // alpha_m_bracket_2 = Eigen::digamma(alpha_m_bracket_2.array());
+        // alpha_m_bracket = (alpha_m_bracket_1 - alpha_m_bracket_2).array().exp();
+        // alpha_m_bracket.resize(M, 1);
+        // alpha_m_bracket = alpha_m_bracket.replicate(1, N);
 
         // ===== update s, R, t, sigma2, y_hat =====
         // nu is M by 1
-        MatrixXf X_bar = (nu.replicate(1, 3).cwiseProduct(X_hat)).colwise().sum() / N_hat;
-        MatrixXf u_bar = (nu.replicate(1, 3).cwiseProduct(u_hat)).colwise().sum() / N_hat;
+        MatrixXd X_bar = (nu.replicate(1, 3).cwiseProduct(X_hat)).colwise().sum() / N_hat;
+        MatrixXd u_bar = (nu.replicate(1, 3).cwiseProduct(u_hat)).colwise().sum() / N_hat;
         // X_bar is 1 by 3
-        double sigma2_bar = (nu*sigma2).sum() / N_hat;
+        double sigma2_bar = (nu.cwiseProduct(big_sigma.diagonal())).sum() / N_hat;
+        std::cout << "=== sigma2_bar ===" << std::endl;
+        std::cout << sigma2_bar << std::endl;
 
-        MatrixXf S_xu = MatrixXf::Zero(3, 3);
-        MatrixXf S_uu = MatrixXf::Zero(3, 3);
+        MatrixXd S_xu = MatrixXd::Zero(3, 3);
+        MatrixXd S_uu = MatrixXd::Zero(3, 3);
         for (int m = 0; m < M; m ++) {
-            MatrixXf X_diff = X_hat.row(m) - X_bar;
-            MatrixXf u_diff = u_hat.row(m) - u_bar;
+            MatrixXd X_diff = X_hat.row(m) - X_bar;
+            MatrixXd u_diff = u_hat.row(m) - u_bar;
             X_diff.resize(3, 1);
             u_diff.resize(1, 3);
             S_xu += nu(m, 0) * (X_diff * u_diff);
@@ -203,41 +233,54 @@ void bcpd_tracker::bcpd (MatrixXf X,
         }
         S_xu /= N_hat;
         S_uu /= N_hat;
-        S_uu += sigma2_bar * MatrixXf::Identity(3, 3);
-        Eigen::JacobiSVD<Eigen::MatrixXf> svd(S_xu, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        MatrixXf U = svd.matrixU();
-        MatrixXf S = svd.singularValues();
-        MatrixXf V = svd.matrixV();
-        MatrixXf Vt = V.transpose();
-        MatrixXf middle_mat = MatrixXf::Identity(3, 3);
+        S_uu += sigma2_bar * MatrixXd::Identity(3, 3);
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(S_xu, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        MatrixXd U = svd.matrixU();
+        MatrixXd S = svd.singularValues();
+        MatrixXd V = svd.matrixV();
+        MatrixXd Vt = V.transpose();
+        MatrixXd middle_mat = MatrixXd::Identity(3, 3);
         middle_mat(2, 2) = (U * V).determinant();
         R = U * middle_mat * Vt;
 
         s = (R * S_xu).trace() / S_uu.trace();
         t = X_bar.transpose() - s*R*u_bar.transpose();
 
-        MatrixXf T_hat = MatrixXf::Identity(4, 4);
+        MatrixXd T_hat = MatrixXd::Identity(4, 4);
         T_hat.block<3, 3>(0, 0) = s*R;
         T_hat.block<3, 1>(0, 3) = t;
 
-        MatrixXf Y_hat_h = Y_hat.replicate(1, 1);
+        std::cout << "=== s ===" << std::endl;
+        std::cout << s << std::endl;
+        std::cout << "=== R ===" << std::endl;
+        std::cout << R << std::endl;
+        std::cout << "=== RTR ===" << std::endl;
+        std::cout << R.transpose() * R << std::endl;
+
+        MatrixXd Y_hat_h = Y_hat.replicate(1, 1);
         Y_hat_h.conservativeResize(Y_hat.rows(), Y_hat.cols()+1);
-        Y_hat_h.col(Y_hat_h.cols()-1) = MatrixXf::Ones(Y_hat_h.rows(), 1);
+        Y_hat_h.col(Y_hat_h.cols()-1) = MatrixXd::Ones(Y_hat_h.rows(), 1);
         Y_hat = (T_hat * Y_hat_h.transpose()).transpose().leftCols(3);
         Y_hat_flat = Y_hat.replicate(1, 1);
         Y_hat_flat.resize(M*3, 1);
     
-        MatrixXf nu_prime_tilde = Eigen::kroneckerProduct(nu_prime, MatrixXf::Constant(1, 3, 1.0));
-        MatrixXf sigma2_mat = 1/(N_hat*3) * (X_flat.transpose()*nu_prime_tilde.asDiagonal()*X_flat - 2*X_flat.transpose()*P_tilde.transpose()*Y_hat_flat + Y_hat_flat.transpose()*nu_tilde.asDiagonal()*Y_hat_flat) + pow(s, 2) * MatrixXf::Constant(1, 1, sigma2_bar);
+        MatrixXd nu_prime_tilde = Eigen::kroneckerProduct(nu_prime, MatrixXd::Constant(1, 3, 1.0));
+        MatrixXd sigma2_mat = 1/(N_hat*3) * (X_flat.transpose()*nu_prime_tilde.asDiagonal()*X_flat - 2*X_flat.transpose()*P_tilde.transpose()*Y_hat_flat + Y_hat_flat.transpose()*nu_tilde.asDiagonal()*Y_hat_flat) + pow(s, 2) * MatrixXd::Constant(1, 1, sigma2_bar);
         sigma2 = sigma2_mat(0, 0);
+        sigma2 = 1e-5;
+
+        std::cout << "=== Y_hat ===" << std::endl;
+        std::cout << Y_hat << std::endl;
+        std::cout << "=== sigma2 ===" << std::endl;
+        std::cout << sigma2_mat << std::endl;
 
         // ===== check convergence =====
         if (fabs(sigma2 - prev_sigma2) < tol && (Y_hat - prev_Y_hat).cwiseAbs().maxCoeff() < tol) {
-            ROS_INFO_STREAM(("Converged after " + std::to_string(i) + " iterations. Time taken: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count()) + " ms."));
+            ROS_INFO_STREAM(("Converged after " + std::to_string(it) + " iterations. Time taken: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count()) + " ms."));
             break;
         }
 
-        if (i == max_iter - 1) {
+        if (it == max_iter - 1) {
             ROS_ERROR_STREAM(("Optimization did not converge! Time taken: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count()) + " ms."));
         }
 
