@@ -118,7 +118,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
 
     # initialize G
     diff = Y[:, None, :] - Y[None, :,  :]
-    diff = np.square(diff)
+    diff = np.abs(diff)
     diff = np.sum(diff, 2)
     G = np.exp(-diff / (2 * beta**2))
 
@@ -133,13 +133,13 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     converted_node_coord = np.array(converted_node_coord)
     converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
     converted_node_dis_sq = np.square(converted_node_dis)
-    G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
+    G = np.exp(-converted_node_dis / (2 * beta**2)) 
 
-    # G approximation
-    eigen_values, eigen_vectors = np.linalg.eig(G)
-    positive_indices = eigen_values > 0
-    G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
-    G = G_hat.astype(np.float64)
+    # # G approximation
+    # eigen_values, eigen_vectors = np.linalg.eig(G)
+    # positive_indices = eigen_values > 0
+    # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    # G = G_hat.astype(np.float64)
 
     # initialize sigma2
     if sigma2_0 is None:
@@ -161,7 +161,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # ===== update P and related terms =====
         pts_dis_sq = np.sum((X[None, :, :] - Y[:, None, :]) ** 2, axis=2)
         c = omega / N
-        P = np.exp(-pts_dis_sq / (2 * sigma2)) * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega)
+        P = alpha_m_bracket * np.exp(-pts_dis_sq / (2 * sigma2)) * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega)
         den = np.sum(P, axis=0)
         den = np.tile(den, (M, 1))
         den[den == 0] = np.finfo(float).eps
@@ -177,9 +177,18 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # compute X_hat
         nu_tilde = np.kron(nu, np.ones((3,)))
         P_tilde = np.kron(P, np.eye(3))
-        X_hat_flat = np.linalg.inv(np.diag(nu_tilde)) @ P_tilde @ X_flat
+        # X_hat_flat = np.linalg.inv(np.diag(nu_tilde)) @ P_tilde @ X_flat
         # the above array has size (N*3,), and is equivalent to X_hat.flatten(), where X_hat is
-        X_hat = np.matmul(np.matmul(np.linalg.inv(np.diag(nu)), P), X)
+        try:
+            X_hat = np.linalg.inv(np.diag(nu)) @ P @ X
+            if np.isnan(X_hat).any():
+                nu_inv = np.zeros((len(nu),))
+                nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
+                X_hat = np.diag(nu_inv) @ P @ X
+        except:
+            nu_inv = np.zeros((len(nu),))
+            nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
+            X_hat = np.diag(nu_inv) @ P @ X
 
         if corr_priors is not None and len(corr_priors) != 0:
             nu_corr = np.sum(J, axis=1)
@@ -288,6 +297,14 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         
         prev_Y_hat = Y_hat.copy()
         prev_sigma2 = sigma2
+
+        # # test: show both sets of nodes
+        # Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
+        # X_pc = Points(X, c=(0, 0, 0), r=8)
+        # Y_hat_pc = Points(Y_hat, c=(0, 255, 0), alpha=0.5, r=20)
+        
+        # plt = Plotter()
+        # plt.show(Y_pc, X_pc, Y_hat_pc)
 
     return Y_hat, sigma2
 
@@ -500,7 +517,7 @@ def pre_process (X, Y_0, geodesic_coord, total_len, bmask, sigma2_0):
     # elif head_visible and tail_visible:
     if head_visible and tail_visible: # but length condition not met - middle part is occluded
         
-        if abs(cur_total_len - total_len) < 0.01:
+        if abs(cur_total_len - total_len) < 0.005:
             rospy.loginfo("Total length unchanged, state = 0")
             state = 0
         else:
@@ -583,7 +600,7 @@ def pre_process (X, Y_0, geodesic_coord, total_len, bmask, sigma2_0):
             spline_pts = np.vstack((x_fine, y_fine, z_fine)).T
 
             # 2nd fit, higher accuracy
-            num_true_pts = int(np.sum(np.sqrt(np.sum(np.square(np.diff(spline_pts, axis=0)), axis=1))) * 1010)
+            num_true_pts = int(np.sum(np.sqrt(np.sum(np.square(np.diff(spline_pts, axis=0)), axis=1))) * 1050)
             u_fine = np.linspace(0, 1, num_true_pts) # <-- num true points
             x_fine, y_fine, z_fine = scipy.interpolate.splev(u_fine, tck)
             spline_pts = np.vstack((x_fine, y_fine, z_fine)).T
@@ -613,7 +630,7 @@ def pre_process (X, Y_0, geodesic_coord, total_len, bmask, sigma2_0):
             spline_pts = np.vstack((x_fine, y_fine, z_fine)).T
 
             # 2nd fit, higher accuracy
-            num_true_pts = int(np.sum(np.sqrt(np.sum(np.square(np.diff(spline_pts, axis=0)), axis=1))) * 1010)
+            num_true_pts = int(np.sum(np.sqrt(np.sum(np.square(np.diff(spline_pts, axis=0)), axis=1))) * 1050)
             u_fine = np.linspace(0, 1, num_true_pts) # <-- num true points
             x_fine, y_fine, z_fine = scipy.interpolate.splev(u_fine, tck)
             spline_pts = np.vstack((x_fine, y_fine, z_fine)).T
@@ -692,7 +709,7 @@ def pre_process (X, Y_0, geodesic_coord, total_len, bmask, sigma2_0):
             spline_pts = np.vstack((x_fine, y_fine, z_fine)).T
 
             # 2nd fit, higher accuracy
-            num_true_pts = int(np.sum(np.sqrt(np.sum(np.square(np.diff(spline_pts, axis=0)), axis=1))) * 1010)
+            num_true_pts = int(np.sum(np.sqrt(np.sum(np.square(np.diff(spline_pts, axis=0)), axis=1))) * 1050)
             u_fine = np.linspace(0, 1, num_true_pts) # <-- num true points
             x_fine, y_fine, z_fine = scipy.interpolate.splev(u_fine, tck)
             spline_pts = np.vstack((x_fine, y_fine, z_fine)).T
@@ -761,7 +778,7 @@ def pre_process (X, Y_0, geodesic_coord, total_len, bmask, sigma2_0):
             spline_pts = np.vstack((x_fine, y_fine, z_fine)).T
 
             # 2nd fit, higher accuracy
-            num_true_pts = int(np.sum(np.sqrt(np.sum(np.square(np.diff(spline_pts, axis=0)), axis=1))) * 1010)
+            num_true_pts = int(np.sum(np.sqrt(np.sum(np.square(np.diff(spline_pts, axis=0)), axis=1))) * 1050)
             u_fine = np.linspace(0, 1, num_true_pts) # <-- num true points
             x_fine, y_fine, z_fine = scipy.interpolate.splev(u_fine, tck)
             spline_pts = np.vstack((x_fine, y_fine, z_fine)).T
@@ -878,7 +895,9 @@ def callback (rgb, pc):
     if not use_marker_rope:
         filtered_pc = filtered_pc[filtered_pc[:, 0] > -0.2]
     else:
-        filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.55]
+        filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.58]
+        # filtered_pc = filtered_pc[(filtered_pc[:, 2] > 0.58) & (filtered_pc[:, 0] > -0.15) & (filtered_pc[:, 1] > -0.15)]
+        # filtered_pc = filtered_pc[~(((filtered_pc[:, 0] < 0.0) & (filtered_pc[:, 1] < 0.05)) | (filtered_pc[:, 2] < 0.58) | (filtered_pc[:, 0] < -0.2) | ((filtered_pc[:, 0] < 0.1) & (filtered_pc[:, 1] < -0.05)))]
     # print('filtered pc shape = ', np.shape(filtered_pc))
 
     # downsample with open3d
@@ -926,11 +945,15 @@ def callback (rgb, pc):
 
             for i in range(len(keypoints_1)):
                 blob_image_center.append((keypoints_1[i].pt[0],keypoints_1[i].pt[1]))
-                guide_nodes.append(cur_pc[int(keypoints_1[i].pt[1]), int(keypoints_1[i].pt[0])])
+                cur_pt = cur_pc[int(keypoints_1[i].pt[1]), int(keypoints_1[i].pt[0])]
+                if cur_pt[2] > 0.55:
+                    guide_nodes.append(cur_pt)
 
             for i in range(len(keypoints_2)):
                 blob_image_center.append((keypoints_2[i].pt[0],keypoints_2[i].pt[1]))
-                guide_nodes.append(cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])])
+                cur_pt = cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])]
+                if cur_pt[2] > 0.55:
+                    guide_nodes.append(cur_pt)
 
             sigma2 = None
             init_nodes = np.array(sort_pts(np.array(guide_nodes)))
@@ -979,8 +1002,14 @@ def callback (rgb, pc):
         # kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         # gamma      -- the scale factor of sigma2_0
         # beta       -- controls the influence of motion coherence
-        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=5, omega=0.0, lam=0.1, kappa=1e16, gamma=1, max_iter=50, tol=0.00001*30, sigma2_0=None, corr_priors=corr_priors, zeta=1e-7)
+        # filtered_pc *= 50
+        # nodes *= 50
+        # corr_priors[:, 1:4] *= 50
+        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=300, omega=0.0, lam=1, kappa=1e16, gamma=1000, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=corr_priors, zeta=1e-6)
         print("sigma2 =", sigma2)
+        # filtered_pc /= 50
+        # nodes /= 50
+        # corr_priors[:, 1:4] /= 50
         init_nodes = nodes.copy()
 
         # project and pub tracking image
