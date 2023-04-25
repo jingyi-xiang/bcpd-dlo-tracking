@@ -123,9 +123,18 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # compute X_hat
         nu_tilde = np.kron(nu, np.ones((3,)))
         P_tilde = np.kron(P, np.eye(3))
-        X_hat_flat = np.linalg.inv(np.diag(nu_tilde)) @ P_tilde @ X_flat
+        # X_hat_flat = np.linalg.inv(np.diag(nu_tilde)) @ P_tilde @ X_flat
         # the above array has size (N*3,), and is equivalent to X_hat.flatten(), where X_hat is
-        X_hat = np.matmul(np.matmul(np.linalg.inv(np.diag(nu)), P), X)
+        try:
+            X_hat = np.linalg.inv(np.diag(nu)) @ P @ X
+            if np.isnan(X_hat).any():
+                nu_inv = np.zeros((len(nu),))
+                nu_inv[nu > 1e-300] = 1/nu[nu > 1e-300]
+                X_hat = np.diag(nu_inv) @ P @ X
+        except:
+            nu_inv = np.zeros((len(nu),))
+            nu_inv[1/nu < 16**257] = 1/nu[1/nu < 16**257]
+            X_hat = np.diag(nu_inv) @ P @ X
 
         if corr_priors is not None and len(corr_priors) != 0:
             nu_corr = np.sum(J, axis=1)
@@ -235,6 +244,14 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         prev_Y_hat = Y_hat.copy()
         prev_sigma2 = sigma2
 
+        # # test: show both sets of nodes
+        # Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
+        # X_pc = Points(X, c=(0, 0, 0), r=8)
+        # Y_hat_pc = Points(Y_hat, c=(0, 255, 0), alpha=0.5, r=20)
+        
+        # plt = Plotter()
+        # plt.show(Y_pc, X_pc, Y_hat_pc)
+
     return Y_hat, sigma2
 
 if __name__ == "__main__":
@@ -252,8 +269,8 @@ if __name__ == "__main__":
     Y_corr, _ = pkl.load(f, encoding="bytes")
     f.close()
     Y_corr = np.flip(Y_corr, 0)
-    Y_corr = np.array(Y_corr)[0:30, :]
-    Y_corr = np.hstack((np.arange(0, 30, 1).reshape(len(Y_corr), 1), Y_corr))
+    Y_corr = np.array(Y_corr)[25:35, :]
+    Y_corr = np.hstack((np.arange(25, 35, 1).reshape(len(Y_corr), 1), Y_corr))
 
     # ===== load X as target point cloud =====
     f = open(data_dir + '001_pcl.json', 'rb')
@@ -264,10 +281,10 @@ if __name__ == "__main__":
     X = X[::int(1/0.025)]
 
     # occlusion
-    X = X[X[:, 0]< 0.12]
+    X = X[X[:, 0] > -0.05]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=5, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.00001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-8)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=5, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-6)
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
