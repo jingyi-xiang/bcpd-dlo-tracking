@@ -140,43 +140,48 @@ void bcpd_tracker::bcpd (MatrixXf X,
         double c = omega / N;
         P = P.array().rowwise() / (P.colwise().sum().array() + c);
 
-    //     // MatrixXf P1 = P.rowwise().sum();
-    //     // MatrixXf Pt1 = P.colwise().sum();
-    //     MatrixXf nu = P.rowwise().sum();
-    //     MatrixXf nu_prime = P.colwise().sum();
-    //     double N_hat = P.sum();
+        // MatrixXf P1 = P.rowwise().sum();
+        // MatrixXf Pt1 = P.colwise().sum();
+        MatrixXf nu = P.rowwise().sum();
+        MatrixXf nu_prime = P.colwise().sum();
+        double N_hat = P.sum();
 
-    //     // compute X_hat
-    //     MatrixXf nu_tilde = Eigen::kroneckerProduct(nu, MatrixXf::Identity(3, 3));
-    //     MatrixXf P_tilde = Eigen::kroneckerProduct(P, MatrixXf::Identity(3, 3));
-    //     MatrixXf X_hat_flat = nu_tilde.asDiagonal().inverse() * P_tilde * X_flat;
-    //     MatrixXf X_hat = nu.asDiagonal().inverse() * P * X;
+        // compute X_hat
+        MatrixXf nu_tilde = Eigen::kroneckerProduct(nu, MatrixXf::Identity(3, 3));
+        MatrixXf P_tilde = Eigen::kroneckerProduct(P, MatrixXf::Identity(3, 3));
+        MatrixXf X_hat_flat = nu_tilde.asDiagonal().inverse() * P_tilde * X_flat;
+        MatrixXf X_hat = nu.asDiagonal().inverse() * P * X;
 
-    //     // ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
-    //     big_sigma = lambda * G.inverse();
-    //     big_sigma += pow(s, 2)/sigma2 * nu.asDiagonal();
-    //     big_sigma = big_sigma.inverse();
-    //     MatrixXf T = MatrixXf::Identity(4, 4);
-    //     T.block<3, 3>(0, 0) = R;
-    //     T.block<3, 1>(0, 3) = t;
-    //     MatrixXf T_inv = T.inverse();
+        // ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
+        big_sigma = lambda * G.inverse();
+        big_sigma += pow(s, 2)/sigma2 * nu.asDiagonal();
+        big_sigma = big_sigma.inverse();
+        MatrixXf T = MatrixXf::Identity(4, 4);
+        T.block<3, 3>(0, 0) = R;
+        T.block<3, 1>(0, 3) = t;
+        MatrixXf T_inv = T.inverse();
 
-    //     MatrixXf X_hat_h = X_hat.replicate(1, 1);
-    //     X_hat_h.conservativeResize(X_hat_h.rows(), X_hat_h.cols()+1);
-    //     X_hat_h.col(X_hat_h.cols()-1) = MatrixXf::Ones(X_hat_h.rows(), 1);
-    //     MatrixXf Y_h = Y.replicate(1, 1);
-    //     Y_h.conservativeResize(Y.rows(), Y_h.cols()+1);
-    //     Y_h.col(Y_h.cols()-1) = MatrixXf::Ones(Y_h.rows(), 1);
-    //     MatrixXf residual= ((T_inv * X_hat_h.transpose()).transpose() - Y_h).leftCols(3);
-    //     MatrixXf v_hat = pow(s, 2)/sigma2 * big_sigma * nu.asDiagonal() * residual;
-    //     MatrixXf v_hat_flat = v_hat.replicate(1, 1);
-    //     v_hat_flat.resize(v_hat.rows()*v_hat.cols(), 1);
+        MatrixXf X_hat_h = X_hat.replicate(1, 1);
+        X_hat_h.conservativeResize(X_hat_h.rows(), X_hat_h.cols()+1);
+        X_hat_h.col(X_hat_h.cols()-1) = MatrixXf::Ones(X_hat_h.rows(), 1);
+        MatrixXf Y_h = Y.replicate(1, 1);
+        Y_h.conservativeResize(Y.rows(), Y_h.cols()+1);
+        Y_h.col(Y_h.cols()-1) = MatrixXf::Ones(Y_h.rows(), 1);
+        MatrixXf residual= ((T_inv * X_hat_h.transpose()).transpose() - Y_h).leftCols(3);
+        MatrixXf v_hat = pow(s, 2)/sigma2 * big_sigma * nu.asDiagonal() * residual;
+        MatrixXf v_hat_flat = v_hat.replicate(1, 1);
+        v_hat_flat.resize(v_hat.rows()*v_hat.cols(), 1);
 
-    //     MatrixXf u_hat = Y + v_hat;
-    //     MatrixXf u_hat_flat = Y_flat + v_hat_flat;
+        MatrixXf u_hat = Y + v_hat;
+        MatrixXf u_hat_flat = Y_flat + v_hat_flat;
 
-    //     alpha_m_bracket = MatrixXf::Constant(nu.rows(), nu.cols(), kappa) + nu;
-    //     alpha_m_bracket = Eigen::digamma(alpha_m_bracket.array());
+        MatrixXf alpha_m_bracket_1 = MatrixXf::Constant(nu.rows(), nu.cols(), kappa) + nu;
+        MatrixXf alpha_m_bracket_2 = MatrixXf::Constant(nu.rows(), nu.cols(), kappa*M + N_hat);
+        alpha_m_bracket_1 = Eigen::digamma(alpha_m_bracket_1.array());
+        alpha_m_bracket_2 = Eigen::digamma(alpha_m_bracket_2.array());
+        alpha_m_bracket = (alpha_m_bracket_1 - alpha_m_bracket_2).array().exp();
+        alpha_m_bracket.resize(M, 1);
+        alpha_m_bracket = alpha_m_bracket.replicate(1, N);
 
     //     // ===== update s, R, t, sigma2, y_hat =====
     //     MatrixXf X_bar = (nu.replicate(1, 3) * X_hat).colwise().sum() / N_hat;
