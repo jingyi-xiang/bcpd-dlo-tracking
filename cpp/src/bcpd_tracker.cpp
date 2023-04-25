@@ -83,59 +83,62 @@ void bcpd_tracker::bcpd (MatrixXf X,
     MatrixXf Y_flat = Y_hat.replicate(1, 1);
     Y_flat.resize(M*3, 1);
 
-    // MatrixXf Y = Y_hat.replicate(1, 1);
-    // MatrixXf v_hat = MatrixXf::Zero(M, 3);
+    MatrixXf Y = Y_hat.replicate(1, 1);
+    MatrixXf v_hat = MatrixXf::Zero(M, 3);
 
-    // MatrixXf big_sigma = MatrixXf::Identity(M, M);
-    // MatrixXf alpha_m_bracket = MatrixXf::Ones(M, N) / M;
-    // double s = 1;
-    // MatrixXf R = MatrixXf::Identity(3, 3);
-    // MatrixXf t = MatrixXf::Zero(1, 3);
+    MatrixXf big_sigma = MatrixXf::Identity(M, M);
+    MatrixXf alpha_m_bracket = MatrixXf::Ones(M, N) / M;
+    double s = 1;
+    MatrixXf R = MatrixXf::Identity(3, 3);
+    MatrixXf t = MatrixXf::Zero(1, 3);
     
-    // // initialize G
-    // MatrixXf diff_yy = MatrixXf::Zero(M, M);
-    // MatrixXf diff_yy_sqrt = MatrixXf::Zero(M, M);
-    // for (int i = 0; i < M; i ++) {
-    //     for (int j = 0; j < M; j ++) {
-    //         diff_yy(i, j) = (Y.row(i) - Y.row(j)).squaredNorm();
-    //         diff_yy_sqrt(i, j) = (Y.row(i) - Y.row(j)).norm();
-    //     }
-    // }
-    // MatrixXf G = (-diff_yy / (2 * beta * beta)).array().exp();
+    // initialize G
+    MatrixXf diff_yy = MatrixXf::Zero(M, M);
+    MatrixXf diff_yy_sqrt = MatrixXf::Zero(M, M);
+    for (int i = 0; i < M; i ++) {
+        for (int j = 0; j < M; j ++) {
+            diff_yy(i, j) = (Y.row(i) - Y.row(j)).squaredNorm();
+            diff_yy_sqrt(i, j) = (Y.row(i) - Y.row(j)).norm();
+        }
+    }
+    MatrixXf G = (-diff_yy / (2 * beta * beta)).array().exp();
 
-    // // Initialize sigma2
-    // MatrixXf diff_xy = MatrixXf::Zero(M, N);
-    // for (int i = 0; i < M; i ++) {
-    //     for (int j = 0; j < N; j ++) {
-    //         diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
-    //     }
-    // }
-    // if (!use_prev_sigma2 || sigma2 == 0) {
-    //     sigma2 = diff_xy.sum() / static_cast<double>(3 * M * N);
-    // }
+    // Initialize sigma2
+    MatrixXf diff_xy = MatrixXf::Zero(M, N);
+    for (int i = 0; i < M; i ++) {
+        for (int j = 0; j < N; j ++) {
+            diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
+        }
+    }
+    if (!use_prev_sigma2 || sigma2 == 0) {
+        sigma2 = diff_xy.sum() / static_cast<double>(3 * M * N);
+    }
 
-    // // ===== log time and initial values =====
-    // std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-    // MatrixXf prev_Y_hat = Y_hat.replicate(1, 1);
-    // double prev_sigma2 = sigma2;
+    // ===== log time and initial values =====
+    std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
+    MatrixXf prev_Y_hat = Y_hat.replicate(1, 1);
+    double prev_sigma2 = sigma2;
 
-    // for (int i = 0; i < max_iter; i ++) {
-    //     MatrixXf Y_hat_flatten = Y_hat.replicate(1, 1);
-    //     Y_hat_flatten.resize(M*3, 1);
-    //     MatrixXf v_hat_flatten = v_hat.replicate(1, 1);
-    //     v_hat_flatten.resize(M*3, 1);
+    for (int i = 0; i < max_iter; i ++) {
+        MatrixXf Y_hat_flatten = Y_hat.replicate(1, 1);
+        Y_hat_flatten.resize(M*3, 1);
+        MatrixXf v_hat_flatten = v_hat.replicate(1, 1);
+        v_hat_flatten.resize(M*3, 1);
 
-    //     // ===== update P and related terms =====
-    //     diff_xy = MatrixXf::Zero(M, N);
-    //     for (int i = 0; i < M; i ++) {
-    //         for (int j = 0; j < N; j ++) {
-    //             diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
-    //         }
-    //     }
-    //     MatrixXf P = (-0.5 * diff_xy / sigma2).array().exp();
-    //     P.array().colwise() *= alpha_m_bracket;
-    //     double c = pow((2 * M_PI * sigma2), 3.0/2.0) * omega / (1 - omega) / N;
-    //     P = P.array().rowwise() / (P.colwise().sum().array() + c);
+        // ===== update P and related terms =====
+        diff_xy = MatrixXf::Zero(M, N);
+        for (int i = 0; i < M; i ++) {
+            for (int j = 0; j < N; j ++) {
+                diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
+            }
+        }
+        MatrixXf phi_mn_bracket_1 = (-0.5 * diff_xy / sigma2).array().exp() * pow(2*M_PI*sigma2, -3.0/2.0) * (1-omega);  // this is M by N
+        MatrixXf phi_mn_bracket_2 = (-pow(s, 2) / (2*sigma2) * 3 * big_sigma.diagonal()).array().exp();  // this is M by 1 or 1 by M. more likely 1 by M
+        phi_mn_bracket_2.resize(M, 1);
+        phi_mn_bracket_2 = phi_mn_bracket_2.replicate(1, N);  // expand to M by N
+        MatrixXf P = (phi_mn_bracket_1.cwiseProduct(phi_mn_bracket_2)).cwiseProduct(alpha_m_bracket);
+        double c = omega / N;
+        P = P.array().rowwise() / (P.colwise().sum().array() + c);
 
     //     // MatrixXf P1 = P.rowwise().sum();
     //     // MatrixXf Pt1 = P.colwise().sum();
@@ -208,5 +211,5 @@ void bcpd_tracker::bcpd (MatrixXf X,
     //     MatrixXf T_hat = MatrixXf::Identity(4, 4);
     //     T_hat.block<3, 3>(0, 0) = s*R;
     //     T_hat.block<3, 1>(0, 3) = t;
-    // }
+    }
 }
