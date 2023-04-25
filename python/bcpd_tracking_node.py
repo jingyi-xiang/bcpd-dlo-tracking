@@ -90,19 +90,10 @@ def register(pts, M, mu=0, max_iter=10):
     # print(repr(new_x), new_s)
     return new_Y, new_s
 
-def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None, corr_priors = None, zeta = None):
+def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None, dist_transform_values=None, k_vis=None):
     # ===== initialization =====
     N = len(X)
     M = len(Y)
-
-    # initialize the J (MxN) matrix (if corr_priors is not None)
-    # corr_priors should have format (index, x, y, z)
-    if corr_priors is not None and len(corr_priors) != 0:
-        N += len(corr_priors)
-        J = np.zeros((M, N))
-        X = np.vstack((corr_priors[:, 1:4], X))
-        for i in range (0, len(corr_priors)):
-            J[int(corr_priors[i, 0]), i] = 1
 
     X_flat = X.flatten()
     Y_flat = Y.flatten()
@@ -115,6 +106,11 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     s = 1
     R = np.eye(3)
     t = np.zeros((3,))
+
+    # initialize P_vis
+    P_vis = np.full((M, N), np.exp(-k_vis*dist_transform_values).reshape(M, 1)) / np.sum(np.exp(-k_vis*dist_transform_values))
+    # print(np.exp(-k_vis*dist_transform_values).reshape(M, 1) / np.sum(np.exp(-k_vis*dist_transform_values)))
+    # print(np.sum(P_vis[:, 0]))
 
     # initialize G
     diff = Y[:, None, :] - Y[None, :,  :]
@@ -159,9 +155,15 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         v_hat_flat = v_hat.flatten()
 
         # ===== update P and related terms =====
-        pts_dis_sq = np.sum((X[None, :, :] - Y[:, None, :]) ** 2, axis=2)
+        pts_dis_sq = np.sum((X[None, :, :] - Y_hat[:, None, :]) ** 2, axis=2)
         c = omega / N
-        P = alpha_m_bracket * np.exp(-pts_dis_sq / (2 * sigma2)) * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega)
+        P = np.exp(-pts_dis_sq / (2 * sigma2)) * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega)
+        
+        if dist_transform_values is None:
+            P *= alpha_m_bracket
+        else:
+            P *= P_vis
+        
         den = np.sum(P, axis=0)
         den = np.tile(den, (M, 1))
         den[den == 0] = np.finfo(float).eps
@@ -173,6 +175,8 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         nu = np.sum(P, axis=1)
         nu_prime = np.sum(P, axis=0)
         N_hat = np.sum(nu_prime)
+
+        print(nu)
 
         # compute X_hat
         nu_tilde = np.kron(nu, np.ones((3,)))
@@ -190,38 +194,20 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
             nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
             X_hat = np.diag(nu_inv) @ P @ X
 
-        if corr_priors is not None and len(corr_priors) != 0:
-            nu_corr = np.sum(J, axis=1)
-            nu_corr_prime = np.sum(J, axis=0)
-            N_corr_hat = np.sum(nu_corr_prime)
-            nu_corr_tilde = np.kron(nu_corr, np.ones((3,)))
+        print(X_hat)
 
         # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
-        if corr_priors is None or len(corr_priors) == 0:
-            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
-            T = np.eye(4)
-            T[0:3, 0:3] = s*R
-            T[0:3, 3] = t
-            T_inv = np.linalg.inv(T)
+        big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
+        T = np.eye(4)
+        T[0:3, 0:3] = s*R
+        T[0:3, 3] = t
+        T_inv = np.linalg.inv(T)
 
-            X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
-            Y_h = np.hstack((Y, np.ones((M, 1))))
-            residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
-            v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual  # this is *3 shape
-            v_hat_flat = v_hat.flatten()
-        else:
-            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu) + s**2/zeta * np.diag(nu_corr))
-            T = np.eye(4)
-            T[0:3, 0:3] = s*R
-            T[0:3, 3] = t
-            T_inv = np.linalg.inv(T)
-
-            X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
-            Y_h = np.hstack((Y, np.ones((M, 1))))
-            residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
-
-            v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual + s**2/zeta * big_sigma @ np.diag(nu_corr) @ residual # this is *3 shape
-            v_hat_flat = v_hat.flatten()
+        X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
+        Y_h = np.hstack((Y, np.ones((M, 1))))
+        residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
+        v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual  # this is *3 shape
+        v_hat_flat = v_hat.flatten()
 
         u_hat = Y + v_hat
         u_hat_flat = Y_flat + v_hat_flat
@@ -230,43 +216,16 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         alpha_m_bracket = np.full((M, N), alpha_m_bracket.reshape(M, 1))
 
         # ===== update s, R, t, sigma2, y_hat =====
-        if corr_priors is None or len(corr_priors) == 0:
-            X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-            u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+        X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
+        u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
 
-            S_xu = np.zeros((3, 3))
-            S_uu = np.zeros((3, 3))
-            for m in range (0, M):
-                S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-                S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-            S_xu /= N_hat
-            S_uu /= N_hat
-
-        else:
-            X_bar_corr = np.sum(np.full((M, 3), nu_corr.reshape(M, 1))*X_hat, axis=0) / N_corr_hat
-            u_bar_corr = np.sum(np.full((M, 3), nu_corr.reshape(M, 1))*u_hat, axis=0) / N_corr_hat
-
-            S_xu_corr = np.zeros((3, 3))
-            S_uu_corr = np.zeros((3, 3))
-            for m in range (0, M):
-                S_xu_corr += nu_corr[m] * (X_hat[m] - X_bar_corr).reshape(3, 1) @ (u_hat[m] - u_bar_corr).reshape(1, 3)
-                S_uu_corr += nu_corr[m] * (u_hat[m] - u_bar_corr).reshape(3, 1) @ (u_hat[m] - u_bar_corr).reshape(1, 3)
-            S_xu_corr /= N_corr_hat
-            S_uu_corr /= N_corr_hat
-
-            X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-            u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
-
-            S_xu = np.zeros((3, 3))
-            S_uu = np.zeros((3, 3))
-            for m in range (0, M):
-                S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-                S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-            S_xu /= N_hat
-            S_uu /= N_hat
-
-            S_xu = (1/sigma2) / (1/sigma2 + 1/zeta) * S_xu + (1/zeta) / (1/sigma2 + 1/zeta) * S_xu_corr
-            S_uu = (1/sigma2) / (1/sigma2 + 1/zeta) * S_uu + (1/zeta) / (1/sigma2 + 1/zeta) * S_uu_corr
+        S_xu = np.zeros((3, 3))
+        S_uu = np.zeros((3, 3))
+        for m in range (0, M):
+            S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+            S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+        S_xu /= N_hat
+        S_uu /= N_hat
 
         sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
         S_uu += sigma2_bar*np.eye(3)
@@ -895,8 +854,8 @@ def callback (rgb, pc):
     if not use_marker_rope:
         filtered_pc = filtered_pc[filtered_pc[:, 0] > -0.2]
     else:
-        filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.58]
-        # filtered_pc = filtered_pc[(filtered_pc[:, 2] > 0.58) & (filtered_pc[:, 0] > -0.15) & (filtered_pc[:, 1] > -0.15)]
+        # filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.58]
+        filtered_pc = filtered_pc[(filtered_pc[:, 2] > 0.58) & (filtered_pc[:, 0] > -0.15) & (filtered_pc[:, 1] > -0.15)]
         # filtered_pc = filtered_pc[~(((filtered_pc[:, 0] < 0.0) & (filtered_pc[:, 1] < 0.05)) | (filtered_pc[:, 2] < 0.58) | (filtered_pc[:, 0] < -0.2) | ((filtered_pc[:, 0] < 0.1) & (filtered_pc[:, 1] < -0.05)))]
     # print('filtered pc shape = ', np.shape(filtered_pc))
 
@@ -949,11 +908,11 @@ def callback (rgb, pc):
                 if cur_pt[2] > 0.55:
                     guide_nodes.append(cur_pt)
 
-            for i in range(len(keypoints_2)):
-                blob_image_center.append((keypoints_2[i].pt[0],keypoints_2[i].pt[1]))
-                cur_pt = cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])]
-                if cur_pt[2] > 0.55:
-                    guide_nodes.append(cur_pt)
+            # for i in range(len(keypoints_2)):
+            #     blob_image_center.append((keypoints_2[i].pt[0],keypoints_2[i].pt[1]))
+            #     cur_pt = cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])]
+            #     if cur_pt[2] > 0.55:
+            #         guide_nodes.append(cur_pt)
 
             sigma2 = None
             init_nodes = np.array(sort_pts(np.array(guide_nodes)))
@@ -993,7 +952,7 @@ def callback (rgb, pc):
         # bmask_transformed = bmask_transformed / np.amax(bmask_transformed)
         vis = bmask_transformed[uvs_t]
 
-        corr_priors = pre_process(filtered_pc, nodes, geodesic_coord, total_len, bmask, sigma2)
+        # corr_priors = pre_process(filtered_pc, nodes, geodesic_coord, total_len, bmask, sigma2)
 
         # ===== Parameters =====
         # X \in R^N  -- target point set
@@ -1005,7 +964,7 @@ def callback (rgb, pc):
         # filtered_pc *= 50
         # nodes *= 50
         # corr_priors[:, 1:4] *= 50
-        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=300, omega=0.0, lam=1, kappa=1e16, gamma=1000, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=corr_priors, zeta=1e-6)
+        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=300, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=None, dist_transform_values=vis, k_vis=0.3)
         print("sigma2 =", sigma2)
         # filtered_pc /= 50
         # nodes /= 50
