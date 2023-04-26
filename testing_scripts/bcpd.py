@@ -73,6 +73,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
     converted_node_dis_sq = np.square(converted_node_dis)
     G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
+    # G = np.exp(-converted_node_dis / (2 * beta**2))
 
     # G approximation
     eigen_values, eigen_vectors = np.linalg.eig(G)
@@ -96,7 +97,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     for i in range (0, max_iter):
 
         # ===== update P and related terms =====
-        pts_dis_sq = np.sum((X[None, :, :] - Y[:, None, :]) ** 2, axis=2)
+        pts_dis_sq = np.sum((X[None, :, :] - Y_hat[:, None, :]) ** 2, axis=2)
         c = omega / N
         P = alpha_m_bracket * np.exp(-pts_dis_sq / (2 * sigma2)) * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega)
         den = np.sum(P, axis=0)
@@ -223,7 +224,7 @@ if __name__ == "__main__":
     X = X[::int(1/0.025)]
 
     # occlusion
-    # X = X[X[:, 0] > -0.05]
+    X = X[X[:, 0] > -0.05]
 
     # run bcpd
     Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=2, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=None, corr_priors=None, zeta=1e-3)
