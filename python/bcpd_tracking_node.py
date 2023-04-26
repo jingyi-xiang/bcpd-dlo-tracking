@@ -90,31 +90,39 @@ def register(pts, M, mu=0, max_iter=10):
     # print(repr(new_x), new_s)
     return new_Y, new_s
 
-def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None, dist_transform_values=None, k_vis=None):
+def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0=None, dist_transform_values=None, k_vis=None, corr_priors = None, zeta = None):
+
     # ===== initialization =====
     N = len(X)
     M = len(Y)
 
-    X_flat = X.flatten()
-    Y_flat = Y.flatten()
+    # initialize the J (MxN) matrix (if corr_priors is not None)
+    # corr_priors should have format (x, y, z, index)
+    # Y_corr = np.hstack((np.arange(25, 35, 1).reshape(len(Y_corr), 1), Y_corr))
+    if corr_priors is not None and len(corr_priors) != 0:
+        N += len(corr_priors)
+        J = np.zeros((M, N))
+        X = np.vstack((corr_priors[:, 1:4], X))
+        for i in range (0, len(corr_priors)):
+            J[int(corr_priors[i, 0]), i] = 1
+
+    X_flat = X.flatten().reshape(N*3, 1)
+    Y_flat = Y.flatten().reshape(M*3, 1)
 
     Y_hat = Y.copy()
     v_hat = np.zeros((M, 3))
+    Y_hat_flat = Y_hat.flatten().reshape(M*3, 1)
+    v_hat_flat = v_hat.flatten().reshape(M*3, 1)
 
     big_sigma = np.eye(M)
     alpha_m_bracket = np.ones((M, N)) * 1.0/M
     s = 1
     R = np.eye(3)
-    t = np.zeros((3,))
-
-    # initialize P_vis
-    P_vis = np.full((M, N), np.exp(-k_vis*dist_transform_values).reshape(M, 1)) / np.sum(np.exp(-k_vis*dist_transform_values))
-    # print(np.exp(-k_vis*dist_transform_values).reshape(M, 1) / np.sum(np.exp(-k_vis*dist_transform_values)))
-    # print(np.sum(P_vis[:, 0]))
+    t = np.zeros((3, 1))
 
     # initialize G
     diff = Y[:, None, :] - Y[None, :,  :]
-    diff = np.abs(diff)
+    diff = np.square(diff)
     diff = np.sum(diff, 2)
     G = np.exp(-diff / (2 * beta**2))
 
@@ -129,13 +137,14 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     converted_node_coord = np.array(converted_node_coord)
     converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
     converted_node_dis_sq = np.square(converted_node_dis)
-    G = np.exp(-converted_node_dis / (2 * beta**2)) 
+    G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
+    # G = np.exp(-converted_node_dis / (2 * beta**2))
 
-    # # G approximation
-    # eigen_values, eigen_vectors = np.linalg.eig(G)
-    # positive_indices = eigen_values > 0
-    # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
-    # G = G_hat.astype(np.float64)
+    # G approximation
+    eigen_values, eigen_vectors = np.linalg.eig(G)
+    positive_indices = eigen_values > 0
+    G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    G = G_hat.astype(np.float64)
 
     # initialize sigma2
     if sigma2_0 is None:
@@ -150,25 +159,21 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     prev_Y_hat = Y_hat.copy()
     prev_sigma2 = sigma2
 
+    print("init sigma2 =", sigma2)
+
     for i in range (0, max_iter):
-        Y_hat_flat = Y_hat.flatten()
-        v_hat_flat = v_hat.flatten()
 
         # ===== update P and related terms =====
         pts_dis_sq = np.sum((X[None, :, :] - Y_hat[:, None, :]) ** 2, axis=2)
         c = omega / N
-        P = np.exp(-pts_dis_sq / (2 * sigma2)) * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega)
-        
-        if dist_transform_values is None:
-            P *= alpha_m_bracket
-        else:
-            P *= P_vis
-        
+        P = alpha_m_bracket * np.exp(-pts_dis_sq / (2 * sigma2)) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega) # * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) 
         den = np.sum(P, axis=0)
         den = np.tile(den, (M, 1))
         den[den == 0] = np.finfo(float).eps
         den += c
         P = np.divide(P, den)
+
+        # print(P[:, 0])
         
         # P1 = np.sum(P, axis=1)
         # Pt1 = np.sum(P, axis=0)
@@ -176,73 +181,74 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         nu_prime = np.sum(P, axis=0)
         N_hat = np.sum(nu_prime)
 
-        print(nu)
-
         # compute X_hat
-        nu_tilde = np.kron(nu, np.ones((3,)))
+        nu_tilde = np.kron(nu, np.ones(3))
         P_tilde = np.kron(P, np.eye(3))
-        # X_hat_flat = np.linalg.inv(np.diag(nu_tilde)) @ P_tilde @ X_flat
-        # the above array has size (N*3,), and is equivalent to X_hat.flatten(), where X_hat is
+
         try:
-            X_hat = np.linalg.inv(np.diag(nu)) @ P @ X
+            X_hat_flat = (np.linalg.inv(np.diag(nu_tilde)) @ P_tilde @ X_flat).reshape(M*3, 1)
+            X_hat = X_hat_flat.reshape(M, 3)
             if np.isnan(X_hat).any():
+                print("has nan")
                 nu_inv = np.zeros((len(nu),))
-                nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
-                X_hat = np.diag(nu_inv) @ P @ X
+                nu_inv[nu > 1e-200] = 1/nu[nu > 1e-200]
+                nu_inv_tilde = np.kron(nu_inv, np.ones(3))
+                X_hat_flat = (np.diag(nu_inv_tilde) @ P_tilde @ X_flat).reshape(M*3, 1)
+                X_hat = X_hat_flat.reshape(M, 3)
         except:
+            print("in the except statement")
             nu_inv = np.zeros((len(nu),))
-            nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
-            X_hat = np.diag(nu_inv) @ P @ X
+            nu_inv[nu > 1e-200] = 1/nu[nu > 1e-200]
+            nu_inv_tilde = np.kron(nu_inv, np.ones(3))
+            X_hat_flat = (np.diag(nu_inv_tilde) @ P_tilde @ X_flat).reshape(M*3, 1)
+            X_hat = X_hat_flat.reshape(M, 3)
 
-        print(X_hat)
+        # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====\
+        if corr_priors is None or len(corr_priors) == 0:
+            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
+            big_sigma_tilde = np.kron(big_sigma, np.eye(3))
+            R_tilde = np.kron(np.eye(M), R)
+            t_tilde = np.kron(np.ones((M, 1)), t)
 
-        # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
-        big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
-        T = np.eye(4)
-        T[0:3, 0:3] = s*R
-        T[0:3, 3] = t
-        T_inv = np.linalg.inv(T)
+            residual = 1/s * R_tilde.T @ (X_hat_flat - t_tilde) - Y_flat
+            v_hat_flat = s**2 / sigma2 * big_sigma_tilde @ np.diag(nu_tilde) @ residual
+            v_hat = v_hat_flat.reshape(M, 3)
+        else:
+            # create variables for corr_priors
+            nu_corr = np.sum(J, axis=1)
+            nu_corr_prime = np.sum(J, axis=0)
+            nu_corr_tilde = np.kron(nu_corr, np.ones(3))
+            J_tilde = np.kron(J, np.eye(3))
 
-        X_hat_h = np.hstack((X_hat, np.ones((M, 1))))
-        Y_h = np.hstack((Y, np.ones((M, 1))))
-        residual = ((T_inv @ X_hat_h.T).T - Y_h)[:, 0:3]
-        v_hat = s**2/sigma2 * big_sigma @ np.diag(nu) @ residual  # this is *3 shape
-        v_hat_flat = v_hat.flatten()
+            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu) + s**2/zeta * np.diag(nu_corr))
+            big_sigma_tilde = np.kron(big_sigma, np.eye(3))
+            R_tilde = np.kron(np.eye(M), R)
+            t_tilde = np.kron(np.ones((M, 1)), t)
 
-        u_hat = Y + v_hat
+            residual = 1/s * R_tilde.T @ (X_hat_flat - t_tilde) - Y_flat
+            dv_residual = np.diag(nu_corr_tilde) @ (1/s*R_tilde.T @ J_tilde @ X_flat - 1/s*R_tilde.T @ t_tilde - Y_flat)
+
+            v_hat_flat = s**2 / sigma2 * big_sigma_tilde @ np.diag(nu_tilde) @ residual + s**2 / zeta * big_sigma_tilde @ dv_residual
+            v_hat = v_hat_flat.reshape(M, 3)
+
         u_hat_flat = Y_flat + v_hat_flat
+        u_hat = u_hat_flat.reshape(M, 3)
         
         alpha_m_bracket = np.exp(scipy.special.digamma(kappa + nu) - scipy.special.digamma(kappa*M + N_hat))
         alpha_m_bracket = np.full((M, N), alpha_m_bracket.reshape(M, 1))
 
-        # ===== update s, R, t, sigma2, y_hat =====
-        X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-        u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
-
-        S_xu = np.zeros((3, 3))
-        S_uu = np.zeros((3, 3))
-        for m in range (0, M):
-            S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-            S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-        S_xu /= N_hat
-        S_uu /= N_hat
-
+        # ===== DO NOT update s, R, t lol =====
         sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
-        S_uu += sigma2_bar*np.eye(3)
-        U, _, Vt = np.linalg.svd(S_xu)
-        middle_mat = np.eye(3)
-        middle_mat[2, 2] = np.linalg.det(U @ Vt.T)
-        R = U @ middle_mat @ Vt
+        
+        s = 1
+        R = np.eye(3)
+        t = np.zeros((3, 1))
+        Y_hat = u_hat.copy()
 
-        s = np.trace(R @ S_xu) / np.trace(S_uu)
-        t = X_bar - s*R @ u_bar
+        print("sigma2_bar =", sigma2_bar)
+        print("v hat =", v_hat[0])
 
-        T_hat = np.eye(4)
-        T_hat[0:3, 0:3] = s*R
-        T_hat[0:3, 3] = t
-        Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
-
-        nu_prime_tilde = np.kron(nu_prime, np.ones((3,)))
+        nu_prime_tilde = np.kron(nu_prime, np.ones(3))
         sigma2 = 1/(N_hat*3) * (X_flat.reshape(1, N*3) @ np.diag(nu_prime_tilde) @ X_flat.reshape(N*3, 1) - 2*X_flat.reshape(1, N*3) @ P_tilde.T @ Y_hat.flatten() + (Y_hat.flatten()).reshape(1, M*3) @ np.diag(nu_tilde) @ (Y_hat.flatten())) + s**2 * sigma2_bar
         sigma2 = sigma2[0, 0]
 
@@ -264,6 +270,8 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         
         # plt = Plotter()
         # plt.show(Y_pc, X_pc, Y_hat_pc)
+        # print(sigma2)
+        print("sigma2 =", sigma2)
 
     return Y_hat, sigma2
 
@@ -476,8 +484,9 @@ def pre_process (X, Y_0, geodesic_coord, total_len, bmask, sigma2_0):
     # elif head_visible and tail_visible:
     if head_visible and tail_visible: # but length condition not met - middle part is occluded
         
-        if abs(cur_total_len - total_len) < 0.005:
+        if abs(cur_total_len - total_len) < 0.02:
             rospy.loginfo("Total length unchanged, state = 0")
+            return []
             state = 0
         else:
             rospy.loginfo("Both ends visible but total length changed, state = 2")
@@ -854,8 +863,8 @@ def callback (rgb, pc):
     if not use_marker_rope:
         filtered_pc = filtered_pc[filtered_pc[:, 0] > -0.2]
     else:
-        # filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.58]
-        filtered_pc = filtered_pc[(filtered_pc[:, 2] > 0.58) & (filtered_pc[:, 0] > -0.15) & (filtered_pc[:, 1] > -0.15)]
+        filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.58]
+        # filtered_pc = filtered_pc[(filtered_pc[:, 2] > 0.58) & (filtered_pc[:, 0] > -0.15) & (filtered_pc[:, 1] > -0.15)]
         # filtered_pc = filtered_pc[~(((filtered_pc[:, 0] < 0.0) & (filtered_pc[:, 1] < 0.05)) | (filtered_pc[:, 2] < 0.58) | (filtered_pc[:, 0] < -0.2) | ((filtered_pc[:, 0] < 0.1) & (filtered_pc[:, 1] < -0.05)))]
     # print('filtered pc shape = ', np.shape(filtered_pc))
 
@@ -908,13 +917,13 @@ def callback (rgb, pc):
                 if cur_pt[2] > 0.55:
                     guide_nodes.append(cur_pt)
 
-            # for i in range(len(keypoints_2)):
-            #     blob_image_center.append((keypoints_2[i].pt[0],keypoints_2[i].pt[1]))
-            #     cur_pt = cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])]
-            #     if cur_pt[2] > 0.55:
-            #         guide_nodes.append(cur_pt)
+            for i in range(len(keypoints_2)):
+                blob_image_center.append((keypoints_2[i].pt[0],keypoints_2[i].pt[1]))
+                cur_pt = cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])]
+                if cur_pt[2] > 0.55:
+                    guide_nodes.append(cur_pt)
 
-            sigma2 = None
+            sigma2 = 1e-5
             init_nodes = np.array(sort_pts(np.array(guide_nodes)))
         
         # compute preset coord and total len. one time action
@@ -952,7 +961,7 @@ def callback (rgb, pc):
         # bmask_transformed = bmask_transformed / np.amax(bmask_transformed)
         vis = bmask_transformed[uvs_t]
 
-        # corr_priors = pre_process(filtered_pc, nodes, geodesic_coord, total_len, bmask, sigma2)
+        corr_priors = pre_process(filtered_pc, nodes, geodesic_coord, total_len, bmask, sigma2)
 
         # ===== Parameters =====
         # X \in R^N  -- target point set
@@ -961,14 +970,16 @@ def callback (rgb, pc):
         # kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         # gamma      -- the scale factor of sigma2_0
         # beta       -- controls the influence of motion coherence
-        # filtered_pc *= 50
-        # nodes *= 50
-        # corr_priors[:, 1:4] *= 50
-        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=300, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=None, dist_transform_values=vis, k_vis=0.3)
-        print("sigma2 =", sigma2)
-        # filtered_pc /= 50
-        # nodes /= 50
-        # corr_priors[:, 1:4] /= 50
+        # filtered_pc *= 100
+        # nodes *= 100
+        # if len(corr_priors) != 0:
+        #     corr_priors[:, 1:4] *= 100
+        nodes, sigma2 = bcpd(X=filtered_pc, Y=nodes, beta=10, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, dist_transform_values=None, k_vis=0.3, corr_priors=corr_priors, zeta=1e-3)
+        # print("sigma2 =", sigma2)
+        # filtered_pc /= 100
+        # nodes /= 100
+        # if len(corr_priors) != 0:
+        #     corr_priors[:, 1:4] /= 100
         init_nodes = nodes.copy()
 
         # project and pub tracking image
@@ -1005,7 +1016,7 @@ def callback (rgb, pc):
     results = ndarray2MarkerArray(nodes, [255, 150, 0, 0.75], [0, 255, 0, 0.75], head)
     results_pub.publish(results)
 
-    print(time.time() - cur_time)
+    print("Callback total:", time.time() - cur_time)
     cur_time = time.time()
 
 use_marker_rope = True
