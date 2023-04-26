@@ -2,3 +2,4 @@
 rosbags/
 *.bag
 __pycache__/
+test.py
