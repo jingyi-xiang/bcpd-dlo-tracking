@@ -82,14 +82,14 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     converted_node_coord = np.array(converted_node_coord)
     converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
     converted_node_dis_sq = np.square(converted_node_dis)
-    G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
-    # G = np.exp(-converted_node_dis / (2 * beta**2))
+    # G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
+    G = np.exp(-converted_node_dis / (2 * beta**2))
 
-    # G approximation
-    eigen_values, eigen_vectors = np.linalg.eig(G)
-    positive_indices = eigen_values > 0
-    G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
-    G = G_hat.astype(np.float64)
+    # # G approximation
+    # eigen_values, eigen_vectors = np.linalg.eig(G)
+    # positive_indices = eigen_values > 0
+    # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    # G = G_hat.astype(np.float64)
 
     # initialize sigma2
     if sigma2_0 is None:
@@ -109,7 +109,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # ===== update P and related terms =====
         pts_dis_sq = np.sum((X[None, :, :] - Y_hat[:, None, :]) ** 2, axis=2)
         c = omega / N
-        P = alpha_m_bracket * np.exp(-pts_dis_sq / (2 * sigma2)) * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1))) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega)
+        P = alpha_m_bracket * np.exp(-pts_dis_sq / (2 * sigma2)) * (2*np.pi*sigma2)**(-3.0/2.0) * (1-omega) # * np.exp(-s**2 / (2*sigma2) * 3 * np.full((M, N), big_sigma.diagonal().reshape(M, 1)))
         den = np.sum(P, axis=0)
         den = np.tile(den, (M, 1))
         den[den == 0] = np.finfo(float).eps
@@ -125,19 +125,24 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # compute X_hat
         nu_tilde = np.kron(nu, np.ones(3))
         P_tilde = np.kron(P, np.eye(3))
-        X_hat_flat = (np.linalg.inv(np.diag(nu_tilde)) @ P_tilde @ X_flat).reshape(M*3, 1)
-        X_hat = X_hat_flat.reshape(M, 3)
 
         try:
-            X_hat = np.linalg.inv(np.diag(nu)) @ P @ X
+            X_hat_flat = (np.linalg.inv(np.diag(nu_tilde)) @ P_tilde @ X_flat).reshape(M*3, 1)
+            X_hat = X_hat_flat.reshape(M, 3)
             if np.isnan(X_hat).any():
+                print("has nan")
                 nu_inv = np.zeros((len(nu),))
-                nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
-                X_hat = np.diag(nu_inv) @ P @ X
+                nu_inv[nu > 1e-200] = 1/nu[nu > 1e-200]
+                nu_inv_tilde = np.kron(nu_inv, np.ones(3))
+                X_hat_flat = (np.diag(nu_inv_tilde) @ P_tilde @ X_flat).reshape(M*3, 1)
+                X_hat = X_hat_flat.reshape(M, 3)
         except:
+            print("in the except statement")
             nu_inv = np.zeros((len(nu),))
-            nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
-            X_hat = np.diag(nu_inv) @ P @ X
+            nu_inv[nu > 1e-200] = 1/nu[nu > 1e-200]
+            nu_inv_tilde = np.kron(nu_inv, np.ones(3))
+            X_hat_flat = (np.diag(nu_inv_tilde) @ P_tilde @ X_flat).reshape(M*3, 1)
+            X_hat = X_hat_flat.reshape(M, 3)
 
         # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====\
         if corr_priors is None or len(corr_priors) == 0:
@@ -234,14 +239,14 @@ if __name__ == "__main__":
     X = X[::int(1/0.025)]
 
     # occlusion
-    X = X[X[:, 0] > -0.05]
+    # X = X[X[:, 0] > -0.05]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=5, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-6)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=100, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-6)
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
-    X_pc = Points(X, c=(0, 0, 0), r=8)
+    X_pc = Points(X, c=(0, 0, 0), r=3)
     Y_hat_pc = Points(Y_hat, c=(0, 255, 0), alpha=0.5, r=20)
     Y_corr_pc = Points(Y_corr[:, 1:4], c=(0, 0, 255), alpha=0.5, r=20)
     
@@ -249,7 +254,7 @@ if __name__ == "__main__":
     plt.show(Y_pc, X_pc, Y_hat_pc, Y_corr_pc)
 
     # more frames?
-    num_of_frames = 0
+    num_of_frames = 10
     for i in range (2, num_of_frames):  # the next frame is frame 2
         sample_prefix = ''
         if len(str(i)) == 1:
@@ -269,12 +274,12 @@ if __name__ == "__main__":
         X = X[::int(1/0.05)]
 
         # run bcpd
-        Y_hat, sigma2 = bcpd(X=X, Y=Y_hat, beta=0.01, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=None)
+        Y_hat, sigma2 = bcpd(X=X, Y=Y_hat, beta=100, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-6)
 
         # test: show both sets of nodes
-        Y_pc = Points(Y, c=(255, 0, 0), r=10)
-        X_pc = Points(X, c=(0, 0, 255), r=3)
-        Y_hat_pc = Points(Y_hat, c=(0, 255, 0), r=10)
+        Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
+        X_pc = Points(X, c=(0, 0, 0), r=3)
+        Y_hat_pc = Points(Y_hat, c=(0, 255, 0), alpha=0.5, r=20)
         
         plt = Plotter()
         plt.show(Y_pc, X_pc, Y_hat_pc)
