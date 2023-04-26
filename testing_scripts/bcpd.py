@@ -41,6 +41,16 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     N = len(X)
     M = len(Y)
 
+    # initialize the J (MxN) matrix (if corr_priors is not None)
+    # corr_priors should have format (x, y, z, index)
+    # Y_corr = np.hstack((np.arange(25, 35, 1).reshape(len(Y_corr), 1), Y_corr))
+    if corr_priors is not None:
+        N += len(corr_priors)
+        J = np.zeros((M, N))
+        X = np.vstack((corr_priors[:, 1:4], X))
+        for i in range (0, len(corr_priors)):
+            J[int(corr_priors[i, 0]), i] = 1
+
     X_flat = X.flatten().reshape(N*3, 1)
     Y_flat = Y.flatten().reshape(M*3, 1)
 
@@ -62,24 +72,24 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     G = np.exp(-diff / (2 * beta**2))
 
     # geodesic distance
-    seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
-    converted_node_coord = []
-    last_pt = 0
-    converted_node_coord.append(last_pt)
-    for i in range (1, M):
-        last_pt += seg_dis[i-1]
-        converted_node_coord.append(last_pt)
-    converted_node_coord = np.array(converted_node_coord)
-    converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
-    converted_node_dis_sq = np.square(converted_node_dis)
-    G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
-    # G = np.exp(-converted_node_dis / (2 * beta**2))
+    # seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
+    # converted_node_coord = []
+    # last_pt = 0
+    # converted_node_coord.append(last_pt)
+    # for i in range (1, M):
+    #     last_pt += seg_dis[i-1]
+    #     converted_node_coord.append(last_pt)
+    # converted_node_coord = np.array(converted_node_coord)
+    # converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
+    # converted_node_dis_sq = np.square(converted_node_dis)
+    # G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
+    # # G = np.exp(-converted_node_dis / (2 * beta**2))
 
-    # G approximation
-    eigen_values, eigen_vectors = np.linalg.eig(G)
-    positive_indices = eigen_values > 0
-    G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
-    G = G_hat.astype(np.float64)
+    # # G approximation
+    # eigen_values, eigen_vectors = np.linalg.eig(G)
+    # positive_indices = eigen_values > 0
+    # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    # G = G_hat.astype(np.float64)
 
     # initialize sigma2
     if sigma2_0 is None:
@@ -129,15 +139,33 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         #     nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
         #     X_hat = np.diag(nu_inv) @ P @ X
 
-        # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
-        big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
-        big_sigma_tilde = np.kron(big_sigma, np.eye(3))
-        R_tilde = np.kron(np.eye(M), R)
-        t_tilde = np.kron(np.ones((M, 1)), t)
+        # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====\
+        if corr_priors is None or len(corr_priors) == 0:
+            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu))
+            big_sigma_tilde = np.kron(big_sigma, np.eye(3))
+            R_tilde = np.kron(np.eye(M), R)
+            t_tilde = np.kron(np.ones((M, 1)), t)
 
-        residual = 1/s * R_tilde.T @ (X_hat_flat - t_tilde) - Y_flat
-        v_hat_flat = s**2 / sigma2 * big_sigma_tilde @ np.diag(nu_tilde) @ residual
-        v_hat = v_hat_flat.reshape(M, 3)
+            residual = 1/s * R_tilde.T @ (X_hat_flat - t_tilde) - Y_flat
+            v_hat_flat = s**2 / sigma2 * big_sigma_tilde @ np.diag(nu_tilde) @ residual
+            v_hat = v_hat_flat.reshape(M, 3)
+        else:
+            # create variables for corr_priors
+            nu_corr = np.sum(J, axis=1)
+            nu_corr_prime = np.sum(J, axis=0)
+            nu_corr_tilde = np.kron(nu_corr, np.ones(3))
+            J_tilde = np.kron(J, np.eye(3))
+
+            big_sigma = np.linalg.inv(lam*np.linalg.inv(G) + s**2/sigma2 * np.diag(nu) + s**2/zeta * np.diag(nu_corr))
+            big_sigma_tilde = np.kron(big_sigma, np.eye(3))
+            R_tilde = np.kron(np.eye(M), R)
+            t_tilde = np.kron(np.ones((M, 1)), t)
+
+            residual = 1/s * R_tilde.T @ (X_hat_flat - t_tilde) - Y_flat
+            dv_residual = np.diag(nu_corr_tilde) @ (1/s*R_tilde.T @ J_tilde @ X_flat - 1/s*R_tilde.T @ t_tilde - Y_flat)
+
+            v_hat_flat = s**2 / sigma2 * big_sigma_tilde @ np.diag(nu_tilde) @ residual + s**2 / zeta * big_sigma_tilde @ dv_residual
+            v_hat = v_hat_flat.reshape(M, 3)
 
         u_hat_flat = Y_flat + v_hat_flat
         u_hat = u_hat_flat.reshape(M, 3)
@@ -194,6 +222,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         
         # plt = Plotter()
         # plt.show(Y_pc, X_pc, Y_hat_pc)
+        # print(sigma2)
 
     return Y_hat, sigma2
 
@@ -227,7 +256,7 @@ if __name__ == "__main__":
     X = X[X[:, 0] > -0.05]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=2, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=None, corr_priors=None, zeta=1e-3)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=2, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-4)
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
