@@ -72,24 +72,24 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     G = np.exp(-diff / (2 * beta**2))
 
     # geodesic distance
-    # seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
-    # converted_node_coord = []
-    # last_pt = 0
-    # converted_node_coord.append(last_pt)
-    # for i in range (1, M):
-    #     last_pt += seg_dis[i-1]
-    #     converted_node_coord.append(last_pt)
-    # converted_node_coord = np.array(converted_node_coord)
-    # converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
-    # converted_node_dis_sq = np.square(converted_node_dis)
-    # G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
-    # # G = np.exp(-converted_node_dis / (2 * beta**2))
+    seg_dis = np.sqrt(np.sum(np.square(np.diff(Y, axis=0)), axis=1))
+    converted_node_coord = []
+    last_pt = 0
+    converted_node_coord.append(last_pt)
+    for i in range (1, M):
+        last_pt += seg_dis[i-1]
+        converted_node_coord.append(last_pt)
+    converted_node_coord = np.array(converted_node_coord)
+    converted_node_dis = np.abs(converted_node_coord[None, :] - converted_node_coord[:, None])
+    converted_node_dis_sq = np.square(converted_node_dis)
+    G = 0.9 * np.exp(-converted_node_dis_sq / (2 * beta**2)) + 0.1 * G
+    # G = np.exp(-converted_node_dis / (2 * beta**2))
 
-    # # G approximation
-    # eigen_values, eigen_vectors = np.linalg.eig(G)
-    # positive_indices = eigen_values > 0
-    # G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
-    # G = G_hat.astype(np.float64)
+    # G approximation
+    eigen_values, eigen_vectors = np.linalg.eig(G)
+    positive_indices = eigen_values > 0
+    G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    G = G_hat.astype(np.float64)
 
     # initialize sigma2
     if sigma2_0 is None:
@@ -128,16 +128,16 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         X_hat_flat = (np.linalg.inv(np.diag(nu_tilde)) @ P_tilde @ X_flat).reshape(M*3, 1)
         X_hat = X_hat_flat.reshape(M, 3)
 
-        # try:
-        #     X_hat = np.linalg.inv(np.diag(nu)) @ P @ X
-        #     if np.isnan(X_hat).any():
-        #         nu_inv = np.zeros((len(nu),))
-        #         nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
-        #         X_hat = np.diag(nu_inv) @ P @ X
-        # except:
-        #     nu_inv = np.zeros((len(nu),))
-        #     nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
-        #     X_hat = np.diag(nu_inv) @ P @ X
+        try:
+            X_hat = np.linalg.inv(np.diag(nu)) @ P @ X
+            if np.isnan(X_hat).any():
+                nu_inv = np.zeros((len(nu),))
+                nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
+                X_hat = np.diag(nu_inv) @ P @ X
+        except:
+            nu_inv = np.zeros((len(nu),))
+            nu_inv[nu > 1/8**257] = 1/nu[nu > 1/8**257]
+            X_hat = np.diag(nu_inv) @ P @ X
 
         # ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====\
         if corr_priors is None or len(corr_priors) == 0:
@@ -173,32 +173,13 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         alpha_m_bracket = np.exp(scipy.special.digamma(kappa + nu) - scipy.special.digamma(kappa*M + N_hat))
         alpha_m_bracket = np.full((M, N), alpha_m_bracket.reshape(M, 1))
 
-        # ===== update s, R, t, sigma2, y_hat =====
-        X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-        u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
-
-        S_xu = np.zeros((3, 3))
-        S_uu = np.zeros((3, 3))
-        for m in range (0, M):
-            S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-            S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-        S_xu /= N_hat
-        S_uu /= N_hat
-
+        # ===== DO NOT update s, R, t lol =====
         sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
-        S_uu += sigma2_bar*np.eye(3)
-        U, _, Vt = np.linalg.svd(S_xu)
-        middle_mat = np.eye(3)
-        middle_mat[2, 2] = np.linalg.det(U @ Vt.T)
-        R = U @ middle_mat @ Vt
-
-        s = np.trace(R @ S_xu) / np.trace(S_uu)
-        t = (X_bar - s*R @ u_bar).reshape(3, 1)
-
-        T_hat = np.eye(4)
-        T_hat[0:3, 0:3] = s*R
-        T_hat[0:3, 3] = t.reshape(3,)
-        Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
+        
+        s = 1
+        R = np.eye(3)
+        t = np.zeros((3, 1))
+        Y_hat = u_hat.copy()
 
         nu_prime_tilde = np.kron(nu_prime, np.ones(3))
         sigma2 = 1/(N_hat*3) * (X_flat.reshape(1, N*3) @ np.diag(nu_prime_tilde) @ X_flat.reshape(N*3, 1) - 2*X_flat.reshape(1, N*3) @ P_tilde.T @ Y_hat.flatten() + (Y_hat.flatten()).reshape(1, M*3) @ np.diag(nu_tilde) @ (Y_hat.flatten())) + s**2 * sigma2_bar
@@ -241,8 +222,8 @@ if __name__ == "__main__":
     Y_corr, _ = pkl.load(f, encoding="bytes")
     f.close()
     Y_corr = np.flip(Y_corr, 0)
-    Y_corr = np.array(Y_corr)[25:35, :]
-    Y_corr = np.hstack((np.arange(25, 35, 1).reshape(len(Y_corr), 1), Y_corr))
+    Y_corr = np.array(Y_corr)[20:35, :]
+    Y_corr = np.hstack((np.arange(20, 35, 1).reshape(len(Y_corr), 1), Y_corr))
 
     # ===== load X as target point cloud =====
     f = open(data_dir + '001_pcl.json', 'rb')
@@ -256,7 +237,7 @@ if __name__ == "__main__":
     X = X[X[:, 0] > -0.05]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=2, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-4)
+    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=5, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=None, corr_priors=Y_corr, zeta=1e-6)
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
