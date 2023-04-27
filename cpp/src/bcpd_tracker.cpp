@@ -52,6 +52,14 @@ MatrixXd bcpd_tracker::get_tracking_result () {
     return Y_;
 }
 
+MatrixXd bcpd_tracker::get_guide_nodes () {
+    return guide_nodes_;
+}
+
+std::vector<MatrixXd> bcpd_tracker::get_correspondence_pairs () {
+    return correspondence_priors_;
+}
+
 void bcpd_tracker::initialize_nodes (MatrixXd Y_init) {
     Y_ = Y_init.replicate(1, 1);
 }
@@ -924,4 +932,123 @@ void bcpd_tracker::bcpd (MatrixXd X,
         prev_Y_hat = Y_hat.replicate(1, 1);
         prev_sigma2 = sigma2;
     }
+}
+
+void bcpd_tracker::tracking_step (MatrixXd X_orig,
+                                  Mat bmask_transformed_normalized,
+                                  double mask_dist_threshold,
+                                  double mat_max) {
+    
+    // variable initialization
+    std::vector<int> occluded_nodes = {};
+    std::vector<int> visible_nodes = {};
+    std::vector<MatrixXd> valid_nodes_vec = {};
+    correspondence_priors_ = {};
+    int state = 0;
+
+    // project Y onto the original image to determine occluded nodes
+    MatrixXd nodes_h = Y_.replicate(1, 1);
+    nodes_h.conservativeResize(nodes_h.rows(), nodes_h.cols()+1);
+    nodes_h.col(nodes_h.cols()-1) = MatrixXd::Ones(nodes_h.rows(), 1);
+    MatrixXd proj_matrix(3, 4);
+    proj_matrix << 918.359130859375, 0.0, 645.8908081054688, 0.0,
+                    0.0, 916.265869140625, 354.02392578125, 0.0,
+                    0.0, 0.0, 1.0, 0.0;
+    MatrixXd image_coords = (proj_matrix * nodes_h.transpose()).transpose();
+    for (int i = 0; i < image_coords.rows(); i ++) {
+        int x = static_cast<int>(image_coords(i, 0)/image_coords(i, 2));
+        int y = static_cast<int>(image_coords(i, 1)/image_coords(i, 2));
+
+        // not currently using the original distance transform because I can't figure it out
+        if (static_cast<int>(bmask_transformed_normalized.at<uchar>(y, x)) < mask_dist_threshold / mat_max * 255) {
+            valid_nodes_vec.push_back(Y_.row(i));
+            visible_nodes.push_back(i);
+        }
+        else {
+            occluded_nodes.push_back(i);
+        }
+    }
+
+    // copy valid guide nodes vec to guide nodes
+    // not using topRows() because it caused weird bugs
+    guide_nodes_ = MatrixXd::Zero(valid_nodes_vec.size(), 3);
+    if (occluded_nodes.size() != 0) {
+        for (int i = 0; i < valid_nodes_vec.size(); i ++) {
+            guide_nodes_.row(i) = valid_nodes_vec[i];
+        }
+    }
+    else {
+        guide_nodes_ = Y_.replicate(1, 1);
+    }
+
+    // determine DLO state: heading visible, tail visible, both visible, or both occluded
+    // priors_vec should be the final output; priors_vec[i] = {index, x, y, z}
+    double sigma2_pre_proc = sigma2_;
+    cpd_lle(X_orig, guide_nodes_, sigma2_pre_proc, 1, 1, 10, 0.1, 50, 0.00001, true, true, true);
+
+    if (occluded_nodes.size() == 0) {
+        ROS_INFO("All nodes visible");
+
+        // get priors vec
+        std::vector<MatrixXd> priors_vec_1 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
+        std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 1);
+        // std::vector<MatrixXd> priors_vec_1 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
+        // std::vector<MatrixXd> priors_vec_2 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
+
+        // take average
+        correspondence_priors_ = {};
+        for (int i = 0; i < Y_.rows(); i ++) {
+            if (i < priors_vec_2[0](0, 0) && i < priors_vec_1.size()) {
+                correspondence_priors_.push_back(priors_vec_1[i]);
+            }
+            else if (i > priors_vec_1[priors_vec_1.size()-1](0, 0) && (i-(Y_.rows()-priors_vec_2.size())) < priors_vec_2.size()) {
+                correspondence_priors_.push_back(priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]);
+            }
+            else {
+                correspondence_priors_.push_back((priors_vec_1[i] + priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]) / 2.0);
+            }
+        }
+    }
+    else if (visible_nodes[0] == 0 && visible_nodes[visible_nodes.size()-1] == Y_.rows()-1) {
+        ROS_INFO("Mid-section occluded");
+
+        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
+        std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 1);
+        // priors_vec = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
+        // std::vector<MatrixXd> priors_vec_2 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
+
+        correspondence_priors_.insert(correspondence_priors_.end(), priors_vec_2.begin(), priors_vec_2.end());
+    }
+    else if (visible_nodes[0] == 0) {
+        ROS_INFO("Tail occluded");
+
+        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
+        // priors_vec = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
+    }
+    else if (visible_nodes[visible_nodes.size()-1] == Y_.rows()-1) {
+        ROS_INFO("Head occluded");
+
+        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 1);
+        // priors_vec = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
+    }
+    else {
+        ROS_INFO("Both ends occluded");
+
+        // determine which node moved the least
+        int alignment_node_idx = -1;
+        double moved_dist = 999999;
+        for (int i = 0; i < visible_nodes.size(); i ++) {
+            if (pt2pt_dis(Y_.row(visible_nodes[i]), guide_nodes_.row(i)) < moved_dist) {
+                moved_dist = pt2pt_dis(Y_.row(visible_nodes[i]), guide_nodes_.row(i));
+                alignment_node_idx = i;
+            }
+        }
+
+        // std::cout << "alignment node index: " << alignment_node_idx << std::endl;
+        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 2, alignment_node_idx);
+    }
+
+    // include_lle == false because we have no space to discuss it in the paper
+    // ecpd_lle (X_orig, Y_, sigma2_, beta_, lambda_, lle_weight_, mu_, max_iter_, tol_, include_lle_, use_geodesic_, use_prev_sigma2_, true, correspondence_priors_, alpha_, kernel_, occluded_nodes, k_vis_, bmask_transformed_normalized, mat_max);
+    bcpd(X_orig, Y_, sigma2_, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_);
 }

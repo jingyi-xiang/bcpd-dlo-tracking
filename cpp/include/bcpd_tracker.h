@@ -75,6 +75,9 @@ class bcpd_tracker
         void initialize_geodesic_coord (std::vector<double> geodesic_coord);
         void set_sigma2 (double sigma2);
 
+        MatrixXd get_guide_nodes();
+        std::vector<MatrixXd> get_correspondence_pairs();
+
         // ===== Parameters =====
         // X \in R^N  -- target point set
         // Y \in R^M  -- source point set 
@@ -107,8 +110,14 @@ class bcpd_tracker
                       bool use_geodesic = true,
                       bool use_prev_sigma2 = true);
 
+        void tracking_step (MatrixXd X_orig,
+                            Mat bmask_transformed_normalized,
+                            double mask_dist_threshold,
+                            double mat_max);
+
     private:
         MatrixXd Y_;
+        MatrixXd guide_nodes_;
         double sigma2_;
         double beta_;
         double lambda_;
