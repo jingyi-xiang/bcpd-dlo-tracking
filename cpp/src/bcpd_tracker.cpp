@@ -121,23 +121,23 @@ void bcpd_tracker::bcpd (MatrixXd X,
         sigma2 = gamma * diff_xy.sum() / static_cast<double>(3 * M * N);
     }
     
-    // // ===== geodesic distance =====
-    // MatrixXd converted_node_dis = MatrixXd::Zero(M, M); // this is a M*M matrix in place of diff_sqrt
-    // MatrixXd converted_node_dis_sq = MatrixXd::Zero(M, M);
-    // std::vector<double> converted_node_coord = {0.0};   // this is not squared
-    // double cur_sum = 0;
-    // for (int i = 0; i < M-1; i ++) {
-    //     cur_sum += pt2pt_dis(Y.row(i+1), Y.row(i));
-    //     converted_node_coord.push_back(cur_sum);
-    // }
+    // ===== geodesic distance =====
+    MatrixXd converted_node_dis = MatrixXd::Zero(M, M); // this is a M*M matrix in place of diff_sqrt
+    MatrixXd converted_node_dis_sq = MatrixXd::Zero(M, M);
+    std::vector<double> converted_node_coord = {0.0};   // this is not squared
+    double cur_sum = 0;
+    for (int i = 0; i < M-1; i ++) {
+        cur_sum += pt2pt_dis(Y.row(i+1), Y.row(i));
+        converted_node_coord.push_back(cur_sum);
+    }
 
-    // for (int i = 0; i < converted_node_coord.size(); i ++) {
-    //     for (int j = 0; j < converted_node_coord.size(); j ++) {
-    //         converted_node_dis_sq(i, j) = pow(converted_node_coord[i] - converted_node_coord[j], 2);
-    //         converted_node_dis(i, j) = abs(converted_node_coord[i] - converted_node_coord[j]);
-    //     }
-    // }
-    // MatrixXd G = (-converted_node_dis / (2 * beta * beta)).array().exp();
+    for (int i = 0; i < converted_node_coord.size(); i ++) {
+        for (int j = 0; j < converted_node_coord.size(); j ++) {
+            converted_node_dis_sq(i, j) = pow(converted_node_coord[i] - converted_node_coord[j], 2);
+            converted_node_dis(i, j) = abs(converted_node_coord[i] - converted_node_coord[j]);
+        }
+    }
+    G = (-converted_node_dis / (2 * beta * beta)).array().exp();
 
     // ===== log time and initial values =====
     std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
@@ -197,17 +197,16 @@ void bcpd_tracker::bcpd (MatrixXd X,
         MatrixXd nu_tilde = Eigen::kroneckerProduct(nu, MatrixXd::Constant(3, 1, 1.0));
         MatrixXd P_tilde = Eigen::kroneckerProduct(P, MatrixXd::Identity(3, 3));
         MatrixXd X_hat_flat = (nu_tilde.asDiagonal().inverse()) * P_tilde * X_flat;
+
+        for (int m = 0; m < 3*M; m ++) {
+            if (nu_tilde(m, 0) == 0.0) {
+                X_hat_flat(m, 0) = 0.0;
+            }
+        }
+
         MatrixXd X_hat_t = X_hat_flat.replicate(1, 1);
         X_hat_t.resize(3, M);
         MatrixXd X_hat = X_hat_t.transpose();
-
-        for (int m = 0; m < M; m ++) {
-            if (nu(m, 0) == 0.0) {
-                X_hat_flat(m, 0) = 0.0;
-                X_hat_flat(m+1, 1) = 0.0;
-                X_hat_flat(m+2, 2) = 0.0;
-            }
-        }
 
         std::cout << "=== X_hat_flat ===" << std::endl;
         std::cout << X_hat_flat << std::endl;
