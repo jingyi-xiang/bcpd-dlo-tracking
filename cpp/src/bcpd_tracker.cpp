@@ -107,9 +107,6 @@ void bcpd_tracker::bcpd (MatrixXd X,
     }
     MatrixXd G = (-diff_yy / (2 * beta * beta)).array().exp();
 
-    std::cout << "=== len(Y) ===" << std::endl;
-    std::cout << Y.rows() << std::endl;
-
     // Initialize sigma2
     MatrixXd diff_xy = MatrixXd::Zero(M, N);
     for (int i = 0; i < M; i ++) {
@@ -160,15 +157,13 @@ void bcpd_tracker::bcpd (MatrixXd X,
                 diff_xy(i, j) = (Y_hat.row(i) - X.row(j)).squaredNorm();
             }
         }
-        std::cout << "=== diff_xy ===" << std::endl;
-        std::cout << (-0.5 * diff_xy.row(0) / sigma2).array().exp().sum() << std::endl;
         MatrixXd phi_mn_bracket_1 = pow(2.0*M_PI*sigma2, -3.0/2.0) * (1.0-omega) * (-0.5 * diff_xy / sigma2).array().exp();  // this is M by N
         MatrixXd phi_mn_bracket_2 = (-pow(s, 2) / (2*sigma2) * 3 * big_sigma.diagonal()).array().exp();  // this is M by 1 or 1 by M. more likely 1 by M
         
         // std::cout << "=== phi_mn_bracket_1 ===" << std::endl;
         // std::cout << phi_mn_bracket_1 << std::endl;
-        std::cout << "=== phi_mn_bracket_2 ===" << std::endl;
-        std::cout << phi_mn_bracket_2 << std::endl;
+        // std::cout << "=== phi_mn_bracket_2 ===" << std::endl;
+        // std::cout << phi_mn_bracket_2 << std::endl;
         // std::cout << sigma2 << std::endl;
         // std::cout << exp(-pow(s, 2) / (2*sigma2) * 3) << std::endl;
         
@@ -180,23 +175,19 @@ void bcpd_tracker::bcpd (MatrixXd X,
         P = P.array().rowwise() / (P.colwise().sum().array() + c);
         // P = P.unaryExpr([](double v) { return std::isfinite(v)? v : 0.0; });
 
-        std::cout << "=== phi_mn_bracket_2_expanded.row(0) ===" << std::endl;
-        std::cout << phi_mn_bracket_2_expanded.row(0) << std::endl;
-        std::cout << "=== P.rowwise().sum() ===" << std::endl;
-        std::cout << P.rowwise().sum() << std::endl;
-
         // MatrixXd P1 = P.rowwise().sum();
         // MatrixXd Pt1 = P.colwise().sum();
         MatrixXd nu = P.rowwise().sum();
         MatrixXd nu_prime = P.colwise().sum();
         double N_hat = P.sum();
-        std::cout << "=== N_hat ===" << std::endl;
-        std::cout << N_hat << std::endl; 
+
+        std::cout << "=== nu ===" << std::endl;
+        std::cout << nu << std::endl;
 
         // compute X_hat
         MatrixXd nu_tilde = Eigen::kroneckerProduct(nu, MatrixXd::Constant(3, 1, 1.0));
         MatrixXd P_tilde = Eigen::kroneckerProduct(P, MatrixXd::Identity(3, 3));
-        MatrixXd X_hat_flat = (nu_tilde.asDiagonal().inverse()) * P_tilde * X_flat;
+        MatrixXd X_hat_flat = (nu_tilde.asDiagonal().inverse()) * (P_tilde * X_flat);
 
         for (int m = 0; m < 3*M; m ++) {
             if (nu_tilde(m, 0) == 0.0) {
@@ -208,10 +199,10 @@ void bcpd_tracker::bcpd (MatrixXd X,
         X_hat_t.resize(3, M);
         MatrixXd X_hat = X_hat_t.transpose();
 
-        std::cout << "=== X_hat_flat ===" << std::endl;
-        std::cout << X_hat_flat << std::endl;
-        std::cout << "=== X_hat_t ===" << std::endl;
-        std::cout << X_hat_t << std::endl;
+        // std::cout << "=== X_hat_flat ===" << std::endl;
+        // std::cout << X_hat_flat << std::endl;
+        // std::cout << "=== X_hat_t ===" << std::endl;
+        // std::cout << X_hat_t << std::endl;
         std::cout << "=== X_hat ===" << std::endl;
         std::cout << X_hat << std::endl;
 
@@ -223,39 +214,38 @@ void bcpd_tracker::bcpd (MatrixXd X,
         MatrixXd R_tilde = Eigen::kroneckerProduct(R, MatrixXd::Identity(M, M));
         MatrixXd t_tilde = Eigen::kroneckerProduct(MatrixXd::Constant(M, 1, 1.0), t);
 
-        std::cout << "before residual" << std::endl;
-        std::cout << R_tilde.rows() << ", " << R_tilde.cols() << "; " << X_hat_flat.rows() << ", " << X_hat_flat.cols() << "; " << t_tilde.rows() << ", " << t_tilde.cols() << std::endl;
-
         MatrixXd residual = 1/s * R_tilde.transpose() * (X_hat_flat - t_tilde) - Y_flat;
         v_hat_flat = pow(s, 2) / sigma2 * big_sigma_tilde * nu_tilde.asDiagonal() * residual;
         MatrixXd v_hat_t = v_hat_flat.replicate(1, 1);
         v_hat_t.resize(3, M);
         v_hat = v_hat_t.transpose();
 
-        std::cout << "after residual" << std::endl;
-
         MatrixXd u_hat = Y + v_hat;
         MatrixXd u_hat_flat = Y_flat + v_hat_flat;
 
-        // MatrixXd alpha_m_bracket_1 = MatrixXd::Constant(nu.rows(), nu.cols(), kappa) + nu;
-        // MatrixXd alpha_m_bracket_2 = MatrixXd::Constant(nu.rows(), nu.cols(), kappa*M + N_hat);
-        // alpha_m_bracket_1 = Eigen::digamma(alpha_m_bracket_1.array());
-        // alpha_m_bracket_2 = Eigen::digamma(alpha_m_bracket_2.array());
-        // alpha_m_bracket = (alpha_m_bracket_1 - alpha_m_bracket_2).array().exp();
-        // alpha_m_bracket.resize(M, 1);
-        // alpha_m_bracket = alpha_m_bracket.replicate(1, N);
+        MatrixXd alpha_m_bracket_1 = MatrixXd::Constant(nu.rows(), nu.cols(), kappa) + nu;
+        MatrixXd alpha_m_bracket_2 = MatrixXd::Constant(nu.rows(), nu.cols(), kappa*M + N_hat);
+        MatrixXd alpha_m_bracket_1_digamma = Eigen::digamma(alpha_m_bracket_1.array());
+        MatrixXd alpha_m_bracket_2_digamma = Eigen::digamma(alpha_m_bracket_2.array());
+        MatrixXd alpha_m_bracket_no_expansion = (alpha_m_bracket_1_digamma - alpha_m_bracket_2_digamma).array().exp();
+        alpha_m_bracket_no_expansion = alpha_m_bracket_no_expansion.unaryExpr([](double v) { return std::isfinite(v)? v : 0.0; });
+        alpha_m_bracket_no_expansion.resize(M, 1);
+        alpha_m_bracket = alpha_m_bracket_no_expansion.replicate(1, N);
+
+        std::cout << "=== alpha_m_bracket_1_digamma - alpha_m_bracket_2_digamma ===" << std::endl;
+        std::cout << alpha_m_bracket_1_digamma - alpha_m_bracket_2_digamma << std::endl;
+
+        std::cout << "=== alpha_m_bracket_no_expansion ===" << std::endl;
+        std::cout << alpha_m_bracket_no_expansion.transpose() << std::endl;
 
         // ===== update s, R, t, sigma2, y_hat =====
         // nu is M by 1
         MatrixXd nu_expanded = nu.replicate(1, 3);
-        std::cout << "=== nu_expanded ===" << std::endl;
-        std::cout << nu_expanded << std::endl;
-        MatrixXd X_bar = (nu_expanded.cwiseProduct(X_hat)).colwise().sum() / N_hat;
-        MatrixXd u_bar = (nu_expanded.cwiseProduct(u_hat)).colwise().sum() / N_hat;
+        // MatrixXd X_bar = (nu_expanded.cwiseProduct(X_hat)).colwise().sum() / N_hat;
+        // MatrixXd u_bar = (nu_expanded.cwiseProduct(u_hat)).colwise().sum() / N_hat;
+
         // X_bar is 1 by 3
         double sigma2_bar = (nu.cwiseProduct(big_sigma.diagonal())).sum() / N_hat;
-        std::cout << "=== sigma2_bar ===" << std::endl;
-        std::cout << sigma2_bar << std::endl;
 
         // MatrixXd S_xu = MatrixXd::Zero(3, 3);
         // MatrixXd S_uu = MatrixXd::Zero(3, 3);
@@ -285,40 +275,15 @@ void bcpd_tracker::bcpd (MatrixXd X,
         MatrixXd T_hat = MatrixXd::Identity(4, 4);
         T_hat.block<3, 3>(0, 0) = s*R;
         T_hat.block<3, 1>(0, 3) = t;
-        std::cout << "=== T_hat ===" << std::endl;
-        std::cout << T_hat << std::endl;
-
-        std::cout << "=== s ===" << std::endl;
-        std::cout << s << std::endl;
-        // std::cout << "=== R ===" << std::endl;
-        // std::cout << R << std::endl;
-        // std::cout << "=== RTR ===" << std::endl;
-        // std::cout << R.transpose() * R << std::endl;
 
         MatrixXd Y_hat_h = u_hat.replicate(1, 1);
         Y_hat_h.conservativeResize(Y_hat.rows(), Y_hat.cols()+1);
         Y_hat_h.col(Y_hat_h.cols()-1) = MatrixXd::Ones(Y_hat_h.rows(), 1);
         Y_hat = (T_hat * Y_hat_h.transpose()).transpose().leftCols(3);
-        std::cout << "=== Y_hat_h ===" << std::endl;
-        std::cout << (T_hat * Y_hat_h.transpose()).transpose() << std::endl;
-        std::cout << "=== Y_hat ===" << std::endl;
-        std::cout << Y_hat << std::endl;
         Y_hat_flat = Y_hat.replicate(1, 1).transpose();
         Y_hat_flat.resize(M*3, 1);
 
-        std::cout << "=== check Y_hat_flat ===" << std::endl;
-        std::cout << Y_hat.row(1) << std::endl;
-        std::cout << Y_hat_flat(3, 0) << ", " << Y_hat_flat(4, 0) << ", " << Y_hat_flat(5, 0) << std::endl;
-
         MatrixXd nu_prime_tilde = Eigen::kroneckerProduct(nu_prime, MatrixXd::Constant(1, 3, 1.0));
-        std::cout << "=== nu_prime_tilde ===" << std::endl;
-        std::cout << nu_prime_tilde << std::endl;
-        std::cout << "=== X_flat.transpose()*nu_prime_tilde.asDiagonal()*X_flat ===" << std::endl;
-        std::cout << X_flat.transpose()*nu_prime_tilde.asDiagonal()*X_flat << std::endl;
-        std::cout << "=== - 2*X_flat.transpose()*P_tilde.transpose()*Y_hat_flat ===" << std::endl;
-        std::cout << - 2*X_flat.transpose()*P_tilde.transpose()*Y_hat_flat << std::endl;
-        std::cout << "=== Y_hat_flat.transpose()*nu_tilde.asDiagonal()*Y_hat_flat ===" << std::endl;
-        std::cout << Y_hat_flat.transpose()*nu_tilde.asDiagonal()*Y_hat_flat << std::endl;
         MatrixXd sigma2_mat = 1/(N_hat*3) * (X_flat.transpose()*nu_prime_tilde.asDiagonal()*X_flat - 2*X_flat.transpose()*P_tilde.transpose()*Y_hat_flat + Y_hat_flat.transpose()*nu_tilde.asDiagonal()*Y_hat_flat) + pow(s, 2) * MatrixXd::Constant(1, 1, sigma2_bar);
         sigma2 = abs(sigma2_mat(0, 0));
 
