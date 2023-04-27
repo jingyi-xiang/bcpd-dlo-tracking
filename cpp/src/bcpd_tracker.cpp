@@ -2,7 +2,6 @@
 #include "../include/bcpd_tracker.h"
 
 using Eigen::MatrixXd;
-using Eigen::RowVectorXf;
 using Eigen::RowVectorXd;
 using cv::Mat;
 
@@ -57,8 +56,643 @@ void bcpd_tracker::initialize_nodes (MatrixXd Y_init) {
     Y_ = Y_init.replicate(1, 1);
 }
 
+void bcpd_tracker::initialize_geodesic_coord (std::vector<double> geodesic_coord) {
+    for (int i = 0; i < geodesic_coord.size(); i ++) {
+        geodesic_coord_.push_back(geodesic_coord[i]);
+    }
+}
+
 void bcpd_tracker::set_sigma2 (double sigma2) {
     sigma2_ = sigma2;
+}
+
+std::vector<int> bcpd_tracker::get_nearest_indices (int k, int M, int idx) {
+    std::vector<int> indices_arr;
+    if (idx - k < 0) {
+        for (int i = 0; i <= idx + k; i ++) {
+            if (i != idx) {
+                indices_arr.push_back(i);
+            }
+        }
+    }
+    else if (idx + k >= M) {
+        for (int i = idx - k; i <= M - 1; i ++) {
+            if (i != idx) {
+                indices_arr.push_back(i);
+            }
+        }
+    }
+    else {
+        for (int i = idx - k; i <= idx + k; i ++) {
+            if (i != idx) {
+                indices_arr.push_back(i);
+            }
+        }
+    }
+
+    return indices_arr;
+}
+
+MatrixXd bcpd_tracker::calc_LLE_weights (int k, MatrixXd X) {
+    MatrixXd W = MatrixXd::Zero(X.rows(), X.rows());
+    for (int i = 0; i < X.rows(); i ++) {
+        std::vector<int> indices = get_nearest_indices(static_cast<int>(k/2), X.rows(), i);
+        MatrixXd xi = X.row(i);
+        MatrixXd Xi = MatrixXd(indices.size(), X.cols());
+
+        // fill in Xi: Xi = X[indices, :]
+        for (int r = 0; r < indices.size(); r ++) {
+            Xi.row(r) = X.row(indices[r]);
+        }
+
+        // component = np.full((len(Xi), len(xi)), xi).T - Xi.T
+        MatrixXd component = xi.replicate(Xi.rows(), 1).transpose() - Xi.transpose();
+        MatrixXd Gi = component.transpose() * component;
+        MatrixXd Gi_inv;
+
+        if (Gi.determinant() != 0) {
+            Gi_inv = Gi.inverse();
+        }
+        else {
+            // std::cout << "Gi singular at entry " << i << std::endl;
+            double epsilon = 0.00001;
+            Gi.diagonal().array() += epsilon;
+            Gi_inv = Gi.inverse();
+        }
+
+        // wi = Gi_inv * 1 / (1^T * Gi_inv * 1)
+        MatrixXd ones_row_vec = MatrixXd::Constant(1, Xi.rows(), 1.0);
+        MatrixXd ones_col_vec = MatrixXd::Constant(Xi.rows(), 1, 1.0);
+
+        MatrixXd wi = (Gi_inv * ones_col_vec) / (ones_row_vec * Gi_inv * ones_col_vec).value();
+        MatrixXd wi_T = wi.transpose();
+
+        for (int c = 0; c < indices.size(); c ++) {
+            W(i, indices[c]) = wi_T(c);
+        }
+    }
+
+    return W;
+}
+
+void bcpd_tracker::cpd_lle (MatrixXd X,
+                            MatrixXd& Y,
+                            double& sigma2,
+                            double beta,
+                            double lambda,
+                            double gamma,
+                            double mu,
+                            int max_iter,
+                            double tol,
+                            bool include_lle,
+                            bool use_geodesic,
+                            bool use_prev_sigma2)
+{
+    int M = Y.rows();
+    int N = X.rows();
+    int D = 3;
+
+    // initialization
+    // compute differences for G matrix computation
+    MatrixXd diff_yy = MatrixXd::Zero(M, M);
+    MatrixXd diff_yy_sqrt = MatrixXd::Zero(M, M);
+    for (int i = 0; i < M; i ++) {
+        for (int j = 0; j < M; j ++) {
+            diff_yy(i, j) = (Y.row(i) - Y.row(j)).squaredNorm();
+            diff_yy_sqrt(i, j) = (Y.row(i) - Y.row(j)).norm();
+        }
+    }
+
+    MatrixXd G = (-diff_yy / (2 * beta * beta)).array().exp();
+    MatrixXd Y_0 = Y.replicate(1, 1);
+
+    // diff_xy should be a (M * N) matrix
+    MatrixXd diff_xy = MatrixXd::Zero(M, N);
+    for (int i = 0; i < M; i ++) {
+        for (int j = 0; j < N; j ++) {
+            diff_xy(i, j) = (Y_0.row(i) - X.row(j)).squaredNorm();
+        }
+    }
+
+    // initialize sigma2
+    if (!use_prev_sigma2 || sigma2 == 0) {
+        sigma2 = diff_xy.sum() / static_cast<double>(D * M * N);
+    }
+
+    for (int it = 0; it < max_iter; it ++) {
+        // ----- E step: compute posteriori probability matrix P -----
+
+        // update diff_xy
+        diff_xy = MatrixXd::Zero(M, N);
+        for (int i = 0; i < M; i ++) {
+            for (int j = 0; j < N; j ++) {
+                diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
+            }
+        }
+
+        double c = std::pow(2 * M_PI * sigma2, static_cast<double>(D) / 2);
+        c *= mu / (1 - mu);
+        c *= static_cast<double>(M) / N;
+
+        MatrixXd P = (-diff_xy / (2 * sigma2)).array().exp().matrix();
+
+        RowVectorXd den = P.colwise().sum();
+        den.array() += c;
+
+        P = P.array().rowwise() / den.array();
+
+        MatrixXd Pt1 = P.colwise().sum();  // this should have shape (N,) or (1, N)
+        MatrixXd P1 = P.rowwise().sum();
+        double Np = P1.sum();
+        MatrixXd PX = P * X;
+
+        // M step
+        MatrixXd A_matrix = P1.asDiagonal() * G + lambda * sigma2 * MatrixXd::Identity(M, M);
+        MatrixXd B_matrix = PX - P1.asDiagonal() * Y_0;
+
+        // MatrixXd W = A_matrix.householderQr().solve(B_matrix);
+        // MatrixXd W = A_matrix.completeOrthogonalDecomposition().solve(B_matrix);
+        MatrixXd W = A_matrix.completeOrthogonalDecomposition().solve(B_matrix);
+
+        MatrixXd T = Y_0 + G * W;
+        double trXtdPt1X = (X.transpose() * Pt1.asDiagonal() * X).trace();
+        double trPXtT = (PX.transpose() * T).trace();
+        double trTtdP1T = (T.transpose() * P1.asDiagonal() * T).trace();
+
+        sigma2 = (trXtdPt1X - 2*trPXtT + trTtdP1T) / (Np * D);
+
+        if (pt2pt_dis_sq(Y, Y_0 + G*W) < tol) {
+            Y = Y_0 + G*W;
+            ROS_INFO_STREAM("Iteration until convergence: " + std::to_string(it+1));
+            break;
+        }
+        else {
+            Y = Y_0 + G*W;
+        }
+
+        if (it == max_iter - 1) {
+            ROS_ERROR("optimization did not converge!");
+            break;
+        }
+    }
+}
+
+// alignment: 0 --> align with head; 1 --> align with tail
+std::vector<MatrixXd> bcpd_tracker::traverse_geodesic (std::vector<double> geodesic_coord, const MatrixXd guide_nodes, const std::vector<int> visible_nodes, int alignment) {
+    std::vector<MatrixXd> node_pairs = {};
+
+    // extreme cases: only one guide node available
+    // since this function will only be called when at least one of head or tail is visible, 
+    // the only node will be head or tail
+    if (guide_nodes.rows() == 1) {
+        MatrixXd node_pair(1, 4);
+        node_pair << visible_nodes[0], guide_nodes(0, 0), guide_nodes(0, 1), guide_nodes(0, 2);
+        node_pairs.push_back(node_pair);
+        return node_pairs;
+    }
+
+    double guide_nodes_total_dist = 0;
+    double total_seg_dist = 0;
+    
+    if (alignment == 0) {
+        // push back the first pair
+        MatrixXd node_pair(1, 4);
+        node_pair << visible_nodes[0], guide_nodes(0, 0), guide_nodes(0, 1), guide_nodes(0, 2);
+        node_pairs.push_back(node_pair);
+
+        // initialize iterators
+        int guide_nodes_it = 0;
+        int seg_dist_it = 0;
+        int last_seg_dist_it = seg_dist_it;
+
+        // ultimate terminating condition: run out of guide nodes to use. two conditions that can trigger this:
+        //   1. next visible node index - current visible node index > 1
+        //   2. currenting using the last two guide nodes
+        while (visible_nodes[guide_nodes_it+1] - visible_nodes[guide_nodes_it] == 1 && guide_nodes_it+1 <= guide_nodes.rows()-1 && seg_dist_it+1 <= geodesic_coord.size()-1) {
+            guide_nodes_total_dist += pt2pt_dis(guide_nodes.row(guide_nodes_it), guide_nodes.row(guide_nodes_it+1));
+            // now keep adding segment dists until the total seg dists exceed the current total guide node dists
+            while (guide_nodes_total_dist > total_seg_dist) {
+                // break condition
+                if (seg_dist_it == geodesic_coord.size()-1) {
+                    break;
+                }
+
+                total_seg_dist += fabs(geodesic_coord[seg_dist_it] - geodesic_coord[seg_dist_it+1]);
+                if (total_seg_dist <= guide_nodes_total_dist) {
+                    seg_dist_it += 1;
+                }
+                else {
+                    total_seg_dist -= fabs(geodesic_coord[seg_dist_it] - geodesic_coord[seg_dist_it+1]);
+                    break;
+                }
+            }
+            // additional break condition
+            if (seg_dist_it == geodesic_coord.size()-1) {
+                break;
+            }
+            // upon exit, seg_dist_it will be at the locaiton where the total seg dist is barely smaller than guide nodes total dist
+            // the node desired should be in between guide_nodes[guide_nodes_it] and guide_node[guide_nodes_it + 1]
+            // seg_dist_it will also be within guide_nodes_it and guide_nodes_it + 1
+            if (guide_nodes_it == 0 && seg_dist_it == 0) {
+                continue;
+            }
+            // if one guide nodes segment is not long enough
+            if (last_seg_dist_it == seg_dist_it) {
+                guide_nodes_it += 1;
+                continue;
+            }
+            double remaining_dist = total_seg_dist - (guide_nodes_total_dist - pt2pt_dis(guide_nodes.row(guide_nodes_it), guide_nodes.row(guide_nodes_it+1)));
+            MatrixXd temp = (guide_nodes.row(guide_nodes_it + 1) - guide_nodes.row(guide_nodes_it)) * remaining_dist / pt2pt_dis(guide_nodes.row(guide_nodes_it), guide_nodes.row(guide_nodes_it+1));
+            node_pair(0, 0) = seg_dist_it;
+            node_pair(0, 1) = temp(0, 0) + guide_nodes(guide_nodes_it, 0);
+            node_pair(0, 2) = temp(0, 1) + guide_nodes(guide_nodes_it, 1);
+            node_pair(0, 3) = temp(0, 2) + guide_nodes(guide_nodes_it, 2);
+            node_pairs.push_back(node_pair);
+
+            // update guide_nodes_it at the very end
+            guide_nodes_it += 1;
+            last_seg_dist_it = seg_dist_it;
+        }
+    }
+    else {
+        // push back the first pair
+        MatrixXd node_pair(1, 4);
+        node_pair << visible_nodes.back(), guide_nodes(guide_nodes.rows()-1, 0), guide_nodes(guide_nodes.rows()-1, 1), guide_nodes(guide_nodes.rows()-1, 2);
+        node_pairs.push_back(node_pair);
+
+        // initialize iterators
+        int guide_nodes_it = guide_nodes.rows()-1;
+        int seg_dist_it = geodesic_coord.size()-1;
+        int last_seg_dist_it = seg_dist_it;
+
+        // ultimate terminating condition: run out of guide nodes to use. two conditions that can trigger this:
+        //   1. next visible node index - current visible node index > 1
+        //   2. currenting using the last two guide nodes
+        while (visible_nodes[guide_nodes_it] - visible_nodes[guide_nodes_it-1] == 1 && guide_nodes_it-1 >= 0 && seg_dist_it-1 >= 0) {
+            guide_nodes_total_dist += pt2pt_dis(guide_nodes.row(guide_nodes_it), guide_nodes.row(guide_nodes_it-1));
+            // now keep adding segment dists until the total seg dists exceed the current total guide node dists
+            while (guide_nodes_total_dist > total_seg_dist) {
+                // break condition
+                if (seg_dist_it == 0) {
+                    break;
+                }
+
+                total_seg_dist += fabs(geodesic_coord[seg_dist_it] - geodesic_coord[seg_dist_it-1]);
+                if (total_seg_dist <= guide_nodes_total_dist) {
+                    seg_dist_it -= 1;
+                }
+                else {
+                    total_seg_dist -= fabs(geodesic_coord[seg_dist_it] - geodesic_coord[seg_dist_it-1]);
+                    break;
+                }
+            }
+            // additional break condition
+            if (seg_dist_it == 0) {
+                break;
+            }
+            // upon exit, seg_dist_it will be at the locaiton where the total seg dist is barely smaller than guide nodes total dist
+            // the node desired should be in between guide_nodes[guide_nodes_it] and guide_node[guide_nodes_it + 1]
+            // seg_dist_it will also be within guide_nodes_it and guide_nodes_it + 1
+            if (guide_nodes_it == 0 && seg_dist_it == 0) {
+                continue;
+            }
+            // if one guide nodes segment is not long enough
+            if (last_seg_dist_it == seg_dist_it) {
+                guide_nodes_it -= 1;
+                continue;
+            }
+            double remaining_dist = total_seg_dist - (guide_nodes_total_dist - pt2pt_dis(guide_nodes.row(guide_nodes_it), guide_nodes.row(guide_nodes_it-1)));
+            MatrixXd temp = (guide_nodes.row(guide_nodes_it - 1) - guide_nodes.row(guide_nodes_it)) * remaining_dist / pt2pt_dis(guide_nodes.row(guide_nodes_it), guide_nodes.row(guide_nodes_it-1));
+            node_pair(0, 0) = seg_dist_it;
+            node_pair(0, 1) = temp(0, 0) + guide_nodes(guide_nodes_it, 0);
+            node_pair(0, 2) = temp(0, 1) + guide_nodes(guide_nodes_it, 1);
+            node_pair(0, 3) = temp(0, 2) + guide_nodes(guide_nodes_it, 2);
+            node_pairs.insert(node_pairs.begin(), node_pair);
+
+            // update guide_nodes_it at the very end
+            guide_nodes_it -= 1;
+            last_seg_dist_it = seg_dist_it;
+        }
+    }
+
+    return node_pairs;
+}
+
+// overload
+std::vector<MatrixXd> bcpd_tracker::traverse_euclidean (std::vector<double> geodesic_coord, const MatrixXd guide_nodes, const std::vector<int> visible_nodes, int alignment, int alignment_node_idx) {
+    std::vector<MatrixXd> node_pairs = {};
+
+    // extreme cases: only one guide node available
+    // since this function will only be called when at least one of head or tail is visible, 
+    // the only node will be head or tail
+    if (guide_nodes.rows() == 1) {
+        MatrixXd node_pair(1, 4);
+        node_pair << visible_nodes[0], guide_nodes(0, 0), guide_nodes(0, 1), guide_nodes(0, 2);
+        node_pairs.push_back(node_pair);
+        return node_pairs;
+    }
+
+    if (alignment == 0) {
+        // push back the first pair
+        MatrixXd node_pair(1, 4);
+        node_pair << visible_nodes[0], guide_nodes(0, 0), guide_nodes(0, 1), guide_nodes(0, 2);
+        node_pairs.push_back(node_pair);
+
+        std::vector<int> consecutive_visible_nodes = {};
+        for (int i = 0; i < visible_nodes.size(); i ++) {
+            if (i == visible_nodes[i]) {
+                consecutive_visible_nodes.push_back(i);
+            }
+            else {
+                break;
+            }
+        }
+
+        int last_found_index = 0;
+        int seg_dist_it = 0;
+        MatrixXd cur_center = guide_nodes.row(0);
+
+        // basically pure pursuit lol
+        while (last_found_index+1 <= consecutive_visible_nodes.size()-1 && seg_dist_it+1 <= geodesic_coord.size()-1) {
+            double look_ahead_dist = fabs(geodesic_coord[seg_dist_it+1] - geodesic_coord[seg_dist_it]);
+            bool found_intersection = false;
+            std::vector<double> intersection = {};
+
+            for (int i = last_found_index; i+1 <= consecutive_visible_nodes.size()-1; i ++) {
+                std::vector<MatrixXd> intersections = line_sphere_intersection(guide_nodes.row(i), guide_nodes.row(i+1), cur_center, look_ahead_dist);
+
+                // if no intersection found
+                if (intersections.size() == 0) {
+                    continue;
+                }
+                else if (intersections.size() == 1 && pt2pt_dis(intersections[0], guide_nodes.row(i+1)) > pt2pt_dis(cur_center, guide_nodes.row(i+1))) {
+                    continue;
+                }
+                else {
+                    found_intersection = true;
+                    last_found_index = i;
+
+                    if (intersections.size() == 2) {
+                        if (pt2pt_dis(intersections[0], guide_nodes.row(i+1)) <= pt2pt_dis(intersections[1], guide_nodes.row(i+1))) {
+                            // the first solution is closer
+                            intersection = {intersections[0](0, 0), intersections[0](0, 1), intersections[0](0, 2)};
+                            cur_center = intersections[0];
+                        }
+                        else {
+                            // the second one is closer
+                            intersection = {intersections[1](0, 0), intersections[1](0, 1), intersections[1](0, 2)};
+                            cur_center = intersections[1];
+                        }
+                    }
+                    else {
+                        intersection = {intersections[0](0, 0), intersections[0](0, 1), intersections[0](0, 2)};
+                        cur_center = intersections[0];
+                    }
+                    break;
+                }
+            }
+
+            if (!found_intersection) {
+                break;
+            }
+            else {
+                MatrixXd temp = MatrixXd::Zero(1, 4);
+                temp(0, 0) = seg_dist_it + 1;
+                temp(0, 1) = intersection[0];
+                temp(0, 2) = intersection[1];
+                temp(0, 3) = intersection[2];
+                node_pairs.push_back(temp);
+
+                seg_dist_it += 1;
+            }
+        }
+    }
+    else if (alignment == 1){
+        // push back the first pair
+        MatrixXd node_pair(1, 4);
+        node_pair << visible_nodes.back(), guide_nodes(guide_nodes.rows()-1, 0), guide_nodes(guide_nodes.rows()-1, 1), guide_nodes(guide_nodes.rows()-1, 2);
+        node_pairs.push_back(node_pair);
+
+        std::vector<int> consecutive_visible_nodes = {};
+        for (int i = 1; i <= visible_nodes.size(); i ++) {
+            if (visible_nodes[visible_nodes.size()-i] == geodesic_coord.size()-i) {
+                consecutive_visible_nodes.push_back(geodesic_coord.size()-i);
+            }
+            else {
+                break;
+            }
+        }
+
+        int last_found_index = guide_nodes.rows()-1;
+        int seg_dist_it = geodesic_coord.size()-1;
+        MatrixXd cur_center = guide_nodes.row(guide_nodes.rows()-1);
+
+        // basically pure pursuit lol
+        while (last_found_index-1 >= (guide_nodes.rows() - consecutive_visible_nodes.size()) && seg_dist_it-1 >= 0) {
+
+            double look_ahead_dist = fabs(geodesic_coord[seg_dist_it] - geodesic_coord[seg_dist_it-1]);
+
+            bool found_intersection = false;
+            std::vector<double> intersection = {};
+
+            for (int i = last_found_index; i >= (guide_nodes.rows() - consecutive_visible_nodes.size() + 1); i --) {
+                std::vector<MatrixXd> intersections = line_sphere_intersection(guide_nodes.row(i), guide_nodes.row(i-1), cur_center, look_ahead_dist);
+
+                // if no intersection found
+                if (intersections.size() == 0) {
+                    continue;
+                }
+                else if (intersections.size() == 1 && pt2pt_dis(intersections[0], guide_nodes.row(i-1)) > pt2pt_dis(cur_center, guide_nodes.row(i-1))) {
+                    continue;
+                }
+                else {
+                    found_intersection = true;
+                    last_found_index = i;
+
+                    if (intersections.size() == 2) {
+                        if (pt2pt_dis(intersections[0], guide_nodes.row(i-1)) <= pt2pt_dis(intersections[1], guide_nodes.row(i-1))) {
+                            // the first solution is closer
+                            intersection = {intersections[0](0, 0), intersections[0](0, 1), intersections[0](0, 2)};
+                            cur_center = intersections[0];
+                        }
+                        else {
+                            // the second one is closer
+                            intersection = {intersections[1](0, 0), intersections[1](0, 1), intersections[1](0, 2)};
+                            cur_center = intersections[1];
+                        }
+                    }
+                    else {
+                        intersection = {intersections[0](0, 0), intersections[0](0, 1), intersections[0](0, 2)};
+                        cur_center = intersections[0];
+                    }
+                    break;
+                }
+            }
+
+            if (!found_intersection) {
+                break;
+            }
+            else {
+                MatrixXd temp = MatrixXd::Zero(1, 4);
+                temp(0, 0) = seg_dist_it - 1;
+                temp(0, 1) = intersection[0];
+                temp(0, 2) = intersection[1];
+                temp(0, 3) = intersection[2];
+                node_pairs.push_back(temp);
+
+                seg_dist_it -= 1;
+            }
+        }
+    }
+    else {
+        // push back the first pair
+        MatrixXd node_pair(1, 4);
+        node_pair << visible_nodes[alignment_node_idx], guide_nodes(alignment_node_idx, 0), guide_nodes(alignment_node_idx, 1), guide_nodes(alignment_node_idx, 2);
+        node_pairs.push_back(node_pair);
+
+        std::vector<int> consecutive_visible_nodes_2 = {visible_nodes[alignment_node_idx]};
+        for (int i = alignment_node_idx+1; i < visible_nodes.size(); i ++) {
+            if (visible_nodes[i] - visible_nodes[i-1] == 1) {
+                consecutive_visible_nodes_2.push_back(visible_nodes[i]);
+            }
+            else {
+                break;
+            }
+        }
+
+        // ----- traverse from the alignment node to the tail node -----
+        int last_found_index = alignment_node_idx;
+        int seg_dist_it = visible_nodes[alignment_node_idx];
+        MatrixXd cur_center = guide_nodes.row(alignment_node_idx);
+
+        // basically pure pursuit lol
+        while (last_found_index+1 <= alignment_node_idx+consecutive_visible_nodes_2.size()-1 && seg_dist_it+1 <= geodesic_coord.size()-1) {
+            double look_ahead_dist = fabs(geodesic_coord[seg_dist_it+1] - geodesic_coord[seg_dist_it]);
+            bool found_intersection = false;
+            std::vector<double> intersection = {};
+
+            for (int i = last_found_index; i+1 <= alignment_node_idx+consecutive_visible_nodes_2.size()-1; i ++) {
+                std::vector<MatrixXd> intersections = line_sphere_intersection(guide_nodes.row(i), guide_nodes.row(i+1), cur_center, look_ahead_dist);
+
+                // if no intersection found
+                if (intersections.size() == 0) {
+                    continue;
+                }
+                else if (intersections.size() == 1 && pt2pt_dis(intersections[0], guide_nodes.row(i+1)) > pt2pt_dis(cur_center, guide_nodes.row(i+1))) {
+                    continue;
+                }
+                else {
+                    found_intersection = true;
+                    last_found_index = i;
+
+                    if (intersections.size() == 2) {
+                        if (pt2pt_dis(intersections[0], guide_nodes.row(i+1)) <= pt2pt_dis(intersections[1], guide_nodes.row(i+1))) {
+                            // the first solution is closer
+                            intersection = {intersections[0](0, 0), intersections[0](0, 1), intersections[0](0, 2)};
+                            cur_center = intersections[0];
+                        }
+                        else {
+                            // the second one is closer
+                            intersection = {intersections[1](0, 0), intersections[1](0, 1), intersections[1](0, 2)};
+                            cur_center = intersections[1];
+                        }
+                    }
+                    else {
+                        intersection = {intersections[0](0, 0), intersections[0](0, 1), intersections[0](0, 2)};
+                        cur_center = intersections[0];
+                    }
+                    break;
+                }
+            }
+
+            if (!found_intersection) {
+                break;
+            }
+            else {
+                MatrixXd temp = MatrixXd::Zero(1, 4);
+                temp(0, 0) = seg_dist_it + 1;
+                temp(0, 1) = intersection[0];
+                temp(0, 2) = intersection[1];
+                temp(0, 3) = intersection[2];
+                node_pairs.push_back(temp);
+
+                seg_dist_it += 1;
+            }
+        }
+
+
+        // ----- traverse from alignment node to head node -----
+        std::vector<int> consecutive_visible_nodes_1 = {visible_nodes[alignment_node_idx]};
+        for (int i = alignment_node_idx-1; i >= 0; i ++) {
+            if (visible_nodes[i+1] - visible_nodes[i] == 1) {
+                consecutive_visible_nodes_1.push_back(visible_nodes[i]);
+            }
+            else {
+                break;
+            }
+        }
+
+        last_found_index = alignment_node_idx;
+        seg_dist_it = visible_nodes[alignment_node_idx];
+        cur_center = guide_nodes.row(alignment_node_idx);
+
+        // basically pure pursuit lol
+        while (last_found_index-1 >= alignment_node_idx-consecutive_visible_nodes_1.size() && seg_dist_it-1 >= 0) {
+            double look_ahead_dist = fabs(geodesic_coord[seg_dist_it] - geodesic_coord[seg_dist_it-1]);
+            bool found_intersection = false;
+            std::vector<double> intersection = {};
+
+            for (int i = last_found_index; i-1 >= 0; i --) {
+                std::vector<MatrixXd> intersections = line_sphere_intersection(guide_nodes.row(i), guide_nodes.row(i-1), cur_center, look_ahead_dist);
+
+                // if no intersection found
+                if (intersections.size() == 0) {
+                    continue;
+                }
+                else if (intersections.size() == 1 && pt2pt_dis(intersections[0], guide_nodes.row(i-1)) > pt2pt_dis(cur_center, guide_nodes.row(i-1))) {
+                    continue;
+                }
+                else {
+                    found_intersection = true;
+                    last_found_index = i;
+
+                    if (intersections.size() == 2) {
+                        if (pt2pt_dis(intersections[0], guide_nodes.row(i-1)) <= pt2pt_dis(intersections[1], guide_nodes.row(i-1))) {
+                            // the first solution is closer
+                            intersection = {intersections[0](0, 0), intersections[0](0, 1), intersections[0](0, 2)};
+                            cur_center = intersections[0];
+                        }
+                        else {
+                            // the second one is closer
+                            intersection = {intersections[1](0, 0), intersections[1](0, 1), intersections[1](0, 2)};
+                            cur_center = intersections[1];
+                        }
+                    }
+                    else {
+                        intersection = {intersections[0](0, 0), intersections[0](0, 1), intersections[0](0, 2)};
+                        cur_center = intersections[0];
+                    }
+                    break;
+                }
+            }
+
+            if (!found_intersection) {
+                break;
+            }
+            else {
+                MatrixXd temp = MatrixXd::Zero(1, 4);
+                temp(0, 0) = seg_dist_it - 1;
+                temp(0, 1) = intersection[0];
+                temp(0, 2) = intersection[1];
+                temp(0, 3) = intersection[2];
+                node_pairs.push_back(temp);
+
+                seg_dist_it -= 1;
+            }
+        }
+    }
+
+    return node_pairs;
 }
 
 void bcpd_tracker::bcpd (MatrixXd X,

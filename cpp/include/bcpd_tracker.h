@@ -72,6 +72,7 @@ class bcpd_tracker
         double get_sigma2();
         MatrixXd get_tracking_result();
         void initialize_nodes (MatrixXd Y_init);
+        void initialize_geodesic_coord (std::vector<double> geodesic_coord);
         void set_sigma2 (double sigma2);
 
         // ===== Parameters =====
@@ -93,6 +94,19 @@ class bcpd_tracker
                    double tol = 0.00001,
                    bool use_prev_sigma2 = false);
 
+        void cpd_lle (MatrixXd X,
+                      MatrixXd& Y,
+                      double& sigma2,
+                      double beta,
+                      double lambda,
+                      double gamma,
+                      double mu,
+                      int max_iter = 50,
+                      double tol = 0.00001,
+                      bool include_lle = true,
+                      bool use_geodesic = true,
+                      bool use_prev_sigma2 = true);
+
     private:
         MatrixXd Y_;
         double sigma2_;
@@ -104,6 +118,15 @@ class bcpd_tracker
         int max_iter_;
         double tol_;
         bool use_prev_sigma2_;
+        std::vector<double> geodesic_coord_;
+        std::vector<MatrixXd> correspondence_priors_;
+
+        std::vector<int> get_nearest_indices (int k, int M, int idx);
+        MatrixXd calc_LLE_weights (int k, MatrixXd X);
+        std::vector<MatrixXd> traverse_geodesic (std::vector<double> geodesic_coord, const MatrixXd guide_nodes, 
+                                                 const std::vector<int> visible_nodes, int alignment);
+        std::vector<MatrixXd> traverse_euclidean (std::vector<double> geodesic_coord, const MatrixXd guide_nodes, 
+                                                  const std::vector<int> visible_nodes, int alignment, int alignment_node_idx = -1);
 };
 
 #endif
