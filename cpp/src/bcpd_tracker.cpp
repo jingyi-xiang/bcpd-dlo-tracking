@@ -174,7 +174,8 @@ void bcpd_tracker::bcpd (MatrixXd X,
         
         phi_mn_bracket_2.resize(M, 1);
         MatrixXd phi_mn_bracket_2_expanded = phi_mn_bracket_2.replicate(1, N);  // expand to M by N
-        MatrixXd P = (phi_mn_bracket_1.cwiseProduct(phi_mn_bracket_2_expanded)).cwiseProduct(alpha_m_bracket);
+        // MatrixXd P = (phi_mn_bracket_1.cwiseProduct(phi_mn_bracket_2_expanded)).cwiseProduct(alpha_m_bracket);
+        MatrixXd P = phi_mn_bracket_1.cwiseProduct(alpha_m_bracket);
         double c = omega / N;
         P = P.array().rowwise() / (P.colwise().sum().array() + c);
         // P = P.unaryExpr([](double v) { return std::isfinite(v)? v : 0.0; });
@@ -193,21 +194,25 @@ void bcpd_tracker::bcpd (MatrixXd X,
         std::cout << N_hat << std::endl; 
 
         // compute X_hat
-        MatrixXd nu_tilde = Eigen::kroneckerProduct(nu, MatrixXd::Constant(1, 3, 1.0));
+        MatrixXd nu_tilde = Eigen::kroneckerProduct(nu, MatrixXd::Constant(3, 1, 1.0));
         MatrixXd P_tilde = Eigen::kroneckerProduct(P, MatrixXd::Identity(3, 3));
-        // MatrixXd X_hat_flat = (nu_tilde.asDiagonal().inverse()) * P_tilde * X_flat;
-        MatrixXd X_hat = nu.asDiagonal().inverse() * P * X;
+        MatrixXd X_hat_flat = (nu_tilde.asDiagonal().inverse()) * P_tilde * X_flat;
+        MatrixXd X_hat_t = X_hat_flat.replicate(1, 1);
+        X_hat_t.resize(3, M);
+        MatrixXd X_hat = X_hat_t.transpose();
 
         for (int m = 0; m < M; m ++) {
             if (nu(m, 0) == 0.0) {
-                X_hat(m, 0) = 0.0;
-                X_hat(m, 1) = 0.0;
-                X_hat(m, 2) = 0.0;
+                X_hat_flat(m, 0) = 0.0;
+                X_hat_flat(m+1, 1) = 0.0;
+                X_hat_flat(m+2, 2) = 0.0;
             }
         }
 
-        // std::cout << "=== X_hat_flat ===" << std::endl;
-        // std::cout << X_hat_flat << std::endl;
+        std::cout << "=== X_hat_flat ===" << std::endl;
+        std::cout << X_hat_flat << std::endl;
+        std::cout << "=== X_hat_t ===" << std::endl;
+        std::cout << X_hat_t << std::endl;
         std::cout << "=== X_hat ===" << std::endl;
         std::cout << X_hat << std::endl;
 
@@ -215,22 +220,20 @@ void bcpd_tracker::bcpd (MatrixXd X,
         big_sigma = lambda * G.inverse();
         big_sigma += pow(s, 2)/sigma2 * nu.asDiagonal();
         big_sigma = big_sigma.inverse();
-        MatrixXd T = MatrixXd::Identity(4, 4);
-        T.block<3, 3>(0, 0) = s*R;
-        T.block<3, 1>(0, 3) = t;
-        MatrixXd T_inv = T.inverse();
+        MatrixXd big_sigma_tilde = Eigen::kroneckerProduct(big_sigma, MatrixXd::Identity(3, 3));
+        MatrixXd R_tilde = Eigen::kroneckerProduct(R, MatrixXd::Identity(M, M));
+        MatrixXd t_tilde = Eigen::kroneckerProduct(MatrixXd::Constant(M, 1, 1.0), t);
 
-        MatrixXd X_hat_h = X_hat.replicate(1, 1);
-        X_hat_h.conservativeResize(X_hat_h.rows(), X_hat_h.cols()+1);
-        X_hat_h.col(X_hat_h.cols()-1) = MatrixXd::Ones(X_hat_h.rows(), 1);
-        MatrixXd Y_h = Y.replicate(1, 1);
-        Y_h.conservativeResize(Y.rows(), Y_h.cols()+1);
-        Y_h.col(Y_h.cols()-1) = MatrixXd::Ones(Y_h.rows(), 1);
+        std::cout << "before residual" << std::endl;
+        std::cout << R_tilde.rows() << ", " << R_tilde.cols() << "; " << X_hat_flat.rows() << ", " << X_hat_flat.cols() << "; " << t_tilde.rows() << ", " << t_tilde.cols() << std::endl;
 
-        MatrixXd residual= ((T_inv * X_hat_h.transpose()).transpose() - Y_h).leftCols(3);
-        v_hat = pow(s, 2)/sigma2 * big_sigma * nu.asDiagonal() * residual;
-        v_hat_flat = v_hat.replicate(1, 1).transpose();
-        v_hat_flat.resize(M*3, 1);
+        MatrixXd residual = 1/s * R_tilde.transpose() * (X_hat_flat - t_tilde) - Y_flat;
+        v_hat_flat = pow(s, 2) / sigma2 * big_sigma_tilde * nu_tilde.asDiagonal() * residual;
+        MatrixXd v_hat_t = v_hat_flat.replicate(1, 1);
+        v_hat_t.resize(3, M);
+        v_hat = v_hat_t.transpose();
+
+        std::cout << "after residual" << std::endl;
 
         MatrixXd u_hat = Y + v_hat;
         MatrixXd u_hat_flat = Y_flat + v_hat_flat;
@@ -255,30 +258,30 @@ void bcpd_tracker::bcpd (MatrixXd X,
         std::cout << "=== sigma2_bar ===" << std::endl;
         std::cout << sigma2_bar << std::endl;
 
-        MatrixXd S_xu = MatrixXd::Zero(3, 3);
-        MatrixXd S_uu = MatrixXd::Zero(3, 3);
-        for (int m = 0; m < M; m ++) {
-            MatrixXd X_diff = X_hat.row(m) - X_bar;
-            MatrixXd u_diff = u_hat.row(m) - u_bar;
-            X_diff.resize(3, 1);
-            u_diff.resize(1, 3);
-            S_xu += nu(m, 0) * (X_diff * u_diff);
-            S_uu += nu(m, 0) * (u_diff.transpose() * u_diff);
-        }
-        S_xu /= N_hat;
-        S_uu /= N_hat;
-        S_uu += sigma2_bar * MatrixXd::Identity(3, 3);
-        Eigen::JacobiSVD<Eigen::MatrixXd> svd(S_xu, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        MatrixXd U = svd.matrixU();
-        MatrixXd S = svd.singularValues();
-        MatrixXd V = svd.matrixV();
-        MatrixXd Vt = V.transpose();
-        MatrixXd middle_mat = MatrixXd::Identity(3, 3);
-        middle_mat(2, 2) = (U * Vt).determinant();
-        R = U * middle_mat * Vt;
+        // MatrixXd S_xu = MatrixXd::Zero(3, 3);
+        // MatrixXd S_uu = MatrixXd::Zero(3, 3);
+        // for (int m = 0; m < M; m ++) {
+        //     MatrixXd X_diff = X_hat.row(m) - X_bar;
+        //     MatrixXd u_diff = u_hat.row(m) - u_bar;
+        //     X_diff.resize(3, 1);
+        //     u_diff.resize(1, 3);
+        //     S_xu += nu(m, 0) * (X_diff * u_diff);
+        //     S_uu += nu(m, 0) * (u_diff.transpose() * u_diff);
+        // }
+        // S_xu /= N_hat;
+        // S_uu /= N_hat;
+        // S_uu += sigma2_bar * MatrixXd::Identity(3, 3);
+        // Eigen::JacobiSVD<Eigen::MatrixXd> svd(S_xu, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        // MatrixXd U = svd.matrixU();
+        // MatrixXd S = svd.singularValues();
+        // MatrixXd V = svd.matrixV();
+        // MatrixXd Vt = V.transpose();
+        // MatrixXd middle_mat = MatrixXd::Identity(3, 3);
+        // middle_mat(2, 2) = (U * Vt).determinant();
+        // R = U * middle_mat * Vt;
 
-        s = (R * S_xu).trace() / S_uu.trace();
-        t = X_bar.transpose() - s*R*u_bar.transpose();
+        // s = (R * S_xu).trace() / S_uu.trace();
+        // t = X_bar.transpose() - s*R*u_bar.transpose();
 
         MatrixXd T_hat = MatrixXd::Identity(4, 4);
         T_hat.block<3, 3>(0, 0) = s*R;
