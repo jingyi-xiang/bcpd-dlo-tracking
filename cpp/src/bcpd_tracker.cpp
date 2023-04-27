@@ -160,13 +160,6 @@ void bcpd_tracker::bcpd (MatrixXd X,
         MatrixXd phi_mn_bracket_1 = pow(2.0*M_PI*sigma2, -3.0/2.0) * (1.0-omega) * (-0.5 * diff_xy / sigma2).array().exp();  // this is M by N
         MatrixXd phi_mn_bracket_2 = (-pow(s, 2) / (2*sigma2) * 3 * big_sigma.diagonal()).array().exp();  // this is M by 1 or 1 by M. more likely 1 by M
         
-        // std::cout << "=== phi_mn_bracket_1 ===" << std::endl;
-        // std::cout << phi_mn_bracket_1 << std::endl;
-        // std::cout << "=== phi_mn_bracket_2 ===" << std::endl;
-        // std::cout << phi_mn_bracket_2 << std::endl;
-        // std::cout << sigma2 << std::endl;
-        // std::cout << exp(-pow(s, 2) / (2*sigma2) * 3) << std::endl;
-        
         phi_mn_bracket_2.resize(M, 1);
         MatrixXd phi_mn_bracket_2_expanded = phi_mn_bracket_2.replicate(1, N);  // expand to M by N
         // MatrixXd P = (phi_mn_bracket_1.cwiseProduct(phi_mn_bracket_2_expanded)).cwiseProduct(alpha_m_bracket);
@@ -231,12 +224,6 @@ void bcpd_tracker::bcpd (MatrixXd X,
         alpha_m_bracket_no_expansion = alpha_m_bracket_no_expansion.unaryExpr([](double v) { return std::isfinite(v)? v : 0.0; });
         alpha_m_bracket_no_expansion.resize(M, 1);
         alpha_m_bracket = alpha_m_bracket_no_expansion.replicate(1, N);
-
-        std::cout << "=== alpha_m_bracket_1_digamma - alpha_m_bracket_2_digamma ===" << std::endl;
-        std::cout << alpha_m_bracket_1_digamma - alpha_m_bracket_2_digamma << std::endl;
-
-        std::cout << "=== alpha_m_bracket_no_expansion ===" << std::endl;
-        std::cout << alpha_m_bracket_no_expansion.transpose() << std::endl;
 
         // ===== update s, R, t, sigma2, y_hat =====
         // nu is M by 1
