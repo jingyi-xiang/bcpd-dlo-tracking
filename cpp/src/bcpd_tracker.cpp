@@ -787,23 +787,23 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         sigma2 = gamma * diff_xy.sum() / static_cast<double>(3 * M * N);
     }
     
-    // // ===== geodesic distance =====
-    // MatrixXd converted_node_dis = MatrixXd::Zero(M, M); // this is a M*M matrix in place of diff_sqrt
-    // MatrixXd converted_node_dis_sq = MatrixXd::Zero(M, M);
-    // std::vector<double> converted_node_coord = {0.0};   // this is not squared
-    // double cur_sum = 0;
-    // for (int i = 0; i < M-1; i ++) {
-    //     cur_sum += pt2pt_dis(Y.row(i+1), Y.row(i));
-    //     converted_node_coord.push_back(cur_sum);
-    // }
+    // ===== geodesic distance =====
+    MatrixXd converted_node_dis = MatrixXd::Zero(M, M); // this is a M*M matrix in place of diff_sqrt
+    MatrixXd converted_node_dis_sq = MatrixXd::Zero(M, M);
+    std::vector<double> converted_node_coord = {0.0};   // this is not squared
+    double cur_sum = 0;
+    for (int i = 0; i < M-1; i ++) {
+        cur_sum += pt2pt_dis(Y.row(i+1), Y.row(i));
+        converted_node_coord.push_back(cur_sum);
+    }
 
-    // for (int i = 0; i < converted_node_coord.size(); i ++) {
-    //     for (int j = 0; j < converted_node_coord.size(); j ++) {
-    //         converted_node_dis_sq(i, j) = pow(converted_node_coord[i] - converted_node_coord[j], 2);
-    //         converted_node_dis(i, j) = abs(converted_node_coord[i] - converted_node_coord[j]);
-    //     }
-    // }
-    // G = (-converted_node_dis / (2 * beta * beta)).array().exp();
+    for (int i = 0; i < converted_node_coord.size(); i ++) {
+        for (int j = 0; j < converted_node_coord.size(); j ++) {
+            converted_node_dis_sq(i, j) = pow(converted_node_coord[i] - converted_node_coord[j], 2);
+            converted_node_dis(i, j) = abs(converted_node_coord[i] - converted_node_coord[j]);
+        }
+    }
+    G = (-converted_node_dis / (2 * beta * beta)).array().exp();
 
     // ===== log time and initial values =====
     std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();

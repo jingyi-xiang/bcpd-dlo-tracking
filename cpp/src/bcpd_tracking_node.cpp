@@ -37,6 +37,7 @@ int max_iter;
 double tol;
 bool use_prev_sigma2;
 double downsample_leaf_size;
+bool double_nodes;
 
 bcpd_tracker tracker;
 
@@ -254,7 +255,7 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                 }
 
                 // if using shorter rope
-                if (bag_file == 4) {
+                if (double_nodes) {
                     detector->detect(mask_blue, keypoints_blue);
 
                     for (cv::KeyPoint key_point : keypoints_blue) {
@@ -559,6 +560,7 @@ int main(int argc, char **argv) {
     nh.getParam("/bcpd/bag_file", bag_file);
     nh.getParam("/bcpd/num_of_nodes", num_of_nodes);
     nh.getParam("/bcpd/downsample_leaf_size", downsample_leaf_size);
+    nh.getParam("/bcpd/double_nodes", double_nodes);
 
     int pub_queue_size = 30;
 
