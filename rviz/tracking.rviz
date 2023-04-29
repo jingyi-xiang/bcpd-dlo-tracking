@@ -81,7 +81,7 @@ Visualization Manager:
       Position Transformer: XYZ
       Queue Size: 1
       Selectable: true
-      Size (Pixels): 10
+      Size (Pixels): 3
       Size (m): 0.009999999776482582
       Style: Points
       Topic: /pts
@@ -91,10 +91,44 @@ Visualization Manager:
       Value: true
     - Class: rviz/MarkerArray
       Enabled: true
-      Marker Topic: /results
+      Marker Topic: /results_marker
       Name: MarkerArray
       Namespaces:
-        {}
+        line_results0: true
+        line_results1: true
+        line_results10: true
+        line_results11: true
+        line_results12: true
+        line_results13: true
+        line_results14: true
+        line_results15: true
+        line_results16: true
+        line_results2: true
+        line_results3: true
+        line_results4: true
+        line_results5: true
+        line_results6: true
+        line_results7: true
+        line_results8: true
+        line_results9: true
+        node_results0: true
+        node_results1: true
+        node_results10: true
+        node_results11: true
+        node_results12: true
+        node_results13: true
+        node_results14: true
+        node_results15: true
+        node_results16: true
+        node_results17: true
+        node_results2: true
+        node_results3: true
+        node_results4: true
+        node_results5: true
+        node_results6: true
+        node_results7: true
+        node_results8: true
+        node_results9: true
       Queue Size: 10
       Value: true
     - Class: rviz/Image
@@ -155,7 +189,7 @@ Visualization Manager:
       Near Clip Distance: 0.009999999776482582
       Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
-      Yaw: 3.124025344848633
+      Yaw: 3.0940253734588623
     Saved: ~
 Window Geometry:
   Displays:

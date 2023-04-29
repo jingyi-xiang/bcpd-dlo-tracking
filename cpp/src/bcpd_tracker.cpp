@@ -17,6 +17,7 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes)
     lambda_ = 10;
     kappa_ = 1e16;
     gamma_ = 10;
+    zeta_ = 1e-4;
     max_iter_ = 50;
     tol_ = 0.00001;
     use_prev_sigma2_ = false;
@@ -28,6 +29,7 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes,
                            double omega,
                            double kappa,
                            double gamma,
+                           double zeta,
                            int max_iter,
                            const double tol,
                            bool use_prev_sigma2)
@@ -39,6 +41,7 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes,
     lambda_ = lambda;
     kappa_ = kappa;
     gamma_ = gamma;
+    zeta_ = zeta;
     max_iter_ = max_iter;
     tol_ = tol;
     use_prev_sigma2_ = use_prev_sigma2;
@@ -1114,5 +1117,5 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
 
     // include_lle == false because we have no space to discuss it in the paper
     // ecpd_lle (X_orig, Y_, sigma2_, beta_, lambda_, lle_weight_, mu_, max_iter_, tol_, include_lle_, use_geodesic_, use_prev_sigma2_, true, correspondence_priors_, alpha_, kernel_, occluded_nodes, k_vis_, bmask_transformed_normalized, mat_max);
-    bcpd(X_orig, Y_, sigma2_, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_, 1e-3);
+    bcpd(X_orig, Y_, sigma2_, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_, zeta_);
 }

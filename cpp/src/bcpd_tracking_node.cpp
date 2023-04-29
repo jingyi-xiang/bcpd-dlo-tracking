@@ -31,6 +31,8 @@ double lambda;
 double omega;
 double kappa;
 double gam;
+double zeta;
+
 int max_iter;
 double tol;
 bool use_prev_sigma2;
@@ -264,7 +266,7 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                 MatrixXd Y_0_sorted = sort_pts(Y_0);
                 Y = Y_0_sorted.replicate(1, 1);
                 
-                tracker = bcpd_tracker(Y_0_sorted.rows(), beta, lambda, omega, kappa, gam, max_iter, tol, use_prev_sigma2);
+                tracker = bcpd_tracker(Y_0_sorted.rows(), beta, lambda, omega, kappa, gam, zeta, max_iter, tol, use_prev_sigma2);
 
                 sigma2 = 0.0;
 
@@ -548,6 +550,7 @@ int main(int argc, char **argv) {
     nh.getParam("/bcpd/omega", omega); 
     nh.getParam("/bcpd/kappa", kappa); 
     nh.getParam("/bcpd/gam", gam); 
+    nh.getParam("/bcpd/zeta", zeta); 
     nh.getParam("/bcpd/max_iter", max_iter); 
     nh.getParam("/bcpd/tol", tol);
     nh.getParam("/bcpd/use_prev_sigma2", use_prev_sigma2); 

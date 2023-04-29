@@ -9,8 +9,9 @@
         <param name="lambda" value="1" />
 
         <param name="omega" value="0.0" />
-        <param name="kappa" value="1e16" />
+        <param name="kappa" type="double" value="1e10" />
         <param name="gam" value="2.0" />
+        <param name="zeta" type="double" value="1e-8" />
 
         <param name="max_iter" value="50" />
         <param name="tol" value="0.0001" />

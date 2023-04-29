@@ -65,6 +65,7 @@ class bcpd_tracker
                      double omega,
                      double kappa,
                      double gamma,
+                     double zeta,
                      int max_iter,
                      const double tol,
                      bool use_prev_sigma2);
@@ -126,6 +127,7 @@ class bcpd_tracker
         double omega_;
         double kappa_;
         double gamma_;
+        double zeta_;
         int max_iter_;
         double tol_;
         bool use_prev_sigma2_;
