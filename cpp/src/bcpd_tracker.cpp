@@ -730,11 +730,12 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         for (int i = 0; i < X_orig.rows(); i ++) {
             X.row(i) = X_orig.row(i);
         }
-        for (int i = X_orig.rows(); i < correspondence_priors.size(); i ++) {
-            int index = correspondence_priors[i](0, 0);
+        for (int i = X_orig.rows(); i < X_orig.rows() + correspondence_priors.size(); i ++) {
+            int index = correspondence_priors[i - X_orig.rows()](0, 0);
             X(i, 0) = correspondence_priors[i - X_orig.rows()](0, 1);
             X(i, 1) = correspondence_priors[i - X_orig.rows()](0, 2);
             X(i, 2) = correspondence_priors[i - X_orig.rows()](0, 3);
+            std::cout << "index = " << index << std::endl;
             J(index, i) = 1;
         }
     }
@@ -783,23 +784,23 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         sigma2 = gamma * diff_xy.sum() / static_cast<double>(3 * M * N);
     }
     
-    // ===== geodesic distance =====
-    MatrixXd converted_node_dis = MatrixXd::Zero(M, M); // this is a M*M matrix in place of diff_sqrt
-    MatrixXd converted_node_dis_sq = MatrixXd::Zero(M, M);
-    std::vector<double> converted_node_coord = {0.0};   // this is not squared
-    double cur_sum = 0;
-    for (int i = 0; i < M-1; i ++) {
-        cur_sum += pt2pt_dis(Y.row(i+1), Y.row(i));
-        converted_node_coord.push_back(cur_sum);
-    }
+    // // ===== geodesic distance =====
+    // MatrixXd converted_node_dis = MatrixXd::Zero(M, M); // this is a M*M matrix in place of diff_sqrt
+    // MatrixXd converted_node_dis_sq = MatrixXd::Zero(M, M);
+    // std::vector<double> converted_node_coord = {0.0};   // this is not squared
+    // double cur_sum = 0;
+    // for (int i = 0; i < M-1; i ++) {
+    //     cur_sum += pt2pt_dis(Y.row(i+1), Y.row(i));
+    //     converted_node_coord.push_back(cur_sum);
+    // }
 
-    for (int i = 0; i < converted_node_coord.size(); i ++) {
-        for (int j = 0; j < converted_node_coord.size(); j ++) {
-            converted_node_dis_sq(i, j) = pow(converted_node_coord[i] - converted_node_coord[j], 2);
-            converted_node_dis(i, j) = abs(converted_node_coord[i] - converted_node_coord[j]);
-        }
-    }
-    G = (-converted_node_dis / (2 * beta * beta)).array().exp();
+    // for (int i = 0; i < converted_node_coord.size(); i ++) {
+    //     for (int j = 0; j < converted_node_coord.size(); j ++) {
+    //         converted_node_dis_sq(i, j) = pow(converted_node_coord[i] - converted_node_coord[j], 2);
+    //         converted_node_dis(i, j) = abs(converted_node_coord[i] - converted_node_coord[j]);
+    //     }
+    // }
+    // G = (-converted_node_dis / (2 * beta * beta)).array().exp();
 
     // ===== log time and initial values =====
     std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
@@ -841,6 +842,8 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
 
         std::cout << "=== nu ===" << std::endl;
         std::cout << nu << std::endl;
+        std::cout << "=== nu_corr ===" << std::endl;
+        std::cout << J.rowwise().sum() << std::endl;
 
         // compute X_hat
         MatrixXd nu_tilde = Eigen::kroneckerProduct(nu, MatrixXd::Constant(3, 1, 1.0));
@@ -861,8 +864,8 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         // std::cout << X_hat_flat << std::endl;
         // std::cout << "=== X_hat_t ===" << std::endl;
         // std::cout << X_hat_t << std::endl;
-        std::cout << "=== X_hat ===" << std::endl;
-        std::cout << X_hat << std::endl;
+        // std::cout << "=== X_hat ===" << std::endl;
+        // std::cout << X_hat << std::endl;
 
         // ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
         if (!align) {
@@ -1043,25 +1046,27 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     if (occluded_nodes.size() == 0) {
         ROS_INFO("All nodes visible");
 
-        // get priors vec
-        std::vector<MatrixXd> priors_vec_1 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
-        std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 1);
-        // std::vector<MatrixXd> priors_vec_1 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
-        // std::vector<MatrixXd> priors_vec_2 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
+        // // get priors vec
+        // std::vector<MatrixXd> priors_vec_1 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
+        // std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 1);
+        // // std::vector<MatrixXd> priors_vec_1 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
+        // // std::vector<MatrixXd> priors_vec_2 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
 
-        // take average
-        correspondence_priors_ = {};
-        for (int i = 0; i < Y_.rows(); i ++) {
-            if (i < priors_vec_2[0](0, 0) && i < priors_vec_1.size()) {
-                correspondence_priors_.push_back(priors_vec_1[i]);
-            }
-            else if (i > priors_vec_1[priors_vec_1.size()-1](0, 0) && (i-(Y_.rows()-priors_vec_2.size())) < priors_vec_2.size()) {
-                correspondence_priors_.push_back(priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]);
-            }
-            else {
-                correspondence_priors_.push_back((priors_vec_1[i] + priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]) / 2.0);
-            }
-        }
+        // // take average
+        // correspondence_priors_ = {};
+        // for (int i = 0; i < Y_.rows(); i ++) {
+        //     if (i < priors_vec_2[0](0, 0) && i < priors_vec_1.size()) {
+        //         correspondence_priors_.push_back(priors_vec_1[i]);
+        //     }
+        //     else if (i > priors_vec_1[priors_vec_1.size()-1](0, 0) && (i-(Y_.rows()-priors_vec_2.size())) < priors_vec_2.size()) {
+        //         correspondence_priors_.push_back(priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]);
+        //     }
+        //     else {
+        //         correspondence_priors_.push_back((priors_vec_1[i] + priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]) / 2.0);
+        //     }
+        // }
+
+        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
     }
     else if (visible_nodes[0] == 0 && visible_nodes[visible_nodes.size()-1] == Y_.rows()-1) {
         ROS_INFO("Mid-section occluded");
@@ -1103,6 +1108,9 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     }
 
     std::cout << "finished traversal" << std::endl;
+    for (int i = 0; i < correspondence_priors_.size(); i ++) {
+        std::cout << correspondence_priors_[i] << std::endl;
+    }
 
     // include_lle == false because we have no space to discuss it in the paper
     // ecpd_lle (X_orig, Y_, sigma2_, beta_, lambda_, lle_weight_, mu_, max_iter_, tol_, include_lle_, use_geodesic_, use_prev_sigma2_, true, correspondence_priors_, alpha_, kernel_, occluded_nodes, k_vis_, bmask_transformed_normalized, mat_max);

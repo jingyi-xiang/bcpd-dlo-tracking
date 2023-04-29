@@ -10,11 +10,11 @@
 
         <param name="omega" value="0.0" />
         <param name="kappa" value="1e16" />
-        <param name="gam" value="1.0" />
+        <param name="gam" value="2.0" />
 
         <param name="max_iter" value="50" />
         <param name="tol" value="0.0001" />
-        <param name="use_prev_sigma2" value="false" />
+        <param name="use_prev_sigma2" value="true" />
         
         <param name="use_eval_rope" value="$(arg use_eval_rope)" />
         <param name="bag_file" value="$(arg bag_file)" />
