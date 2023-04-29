@@ -703,7 +703,7 @@ std::vector<MatrixXd> bcpd_tracker::traverse_euclidean (std::vector<double> geod
     return node_pairs;
 }
 
-void bcpd_tracker::bcpd (MatrixXd X,
+void bcpd_tracker::bcpd (MatrixXd X_orig,
                          MatrixXd& Y_hat,
                          double& sigma2,
                          double beta,
@@ -713,9 +713,32 @@ void bcpd_tracker::bcpd (MatrixXd X,
                          double gamma,
                          int max_iter,
                          double tol,
-                         bool use_prev_sigma2)
+                         bool use_prev_sigma2,
+                         std::vector<MatrixXd> correspondence_priors,
+                         double zeta)
 {
     // ===== initialization =====
+    bool align = true;
+    if (correspondence_priors.size() == 0) {
+        align = false;
+    }
+
+    MatrixXd X = X_orig.replicate(1, 1);
+    MatrixXd J = MatrixXd::Zero(Y_hat.rows(), X_orig.rows() + correspondence_priors.size());
+    if (align) {
+        X = MatrixXd::Zero(X_orig.rows() + correspondence_priors.size(), 3);
+        for (int i = 0; i < X_orig.rows(); i ++) {
+            X.row(i) = X_orig.row(i);
+        }
+        for (int i = X_orig.rows(); i < correspondence_priors.size(); i ++) {
+            int index = correspondence_priors[i](0, 0);
+            X(i, 0) = correspondence_priors[i - X_orig.rows()](0, 1);
+            X(i, 1) = correspondence_priors[i - X_orig.rows()](0, 2);
+            X(i, 2) = correspondence_priors[i - X_orig.rows()](0, 3);
+            J(index, i) = 1;
+        }
+    }
+
     int M = Y_hat.rows();
     int N = X.rows();
 
@@ -842,18 +865,49 @@ void bcpd_tracker::bcpd (MatrixXd X,
         std::cout << X_hat << std::endl;
 
         // ===== update big_sigma, v_hat, u_hat, and alpha_m_bracket for all m =====
-        big_sigma = lambda * G.inverse();
-        big_sigma += pow(s, 2)/sigma2 * nu.asDiagonal();
-        big_sigma = big_sigma.inverse();
-        MatrixXd big_sigma_tilde = Eigen::kroneckerProduct(big_sigma, MatrixXd::Identity(3, 3));
-        MatrixXd R_tilde = Eigen::kroneckerProduct(R, MatrixXd::Identity(M, M));
-        MatrixXd t_tilde = Eigen::kroneckerProduct(MatrixXd::Constant(M, 1, 1.0), t);
+        if (!align) {
+            big_sigma = lambda * G.inverse();
+            big_sigma += pow(s, 2)/sigma2 * nu.asDiagonal();
+            big_sigma = big_sigma.inverse();
+            MatrixXd big_sigma_tilde = Eigen::kroneckerProduct(big_sigma, MatrixXd::Identity(3, 3));
+            MatrixXd R_tilde = Eigen::kroneckerProduct(R, MatrixXd::Identity(M, M));
+            MatrixXd t_tilde = Eigen::kroneckerProduct(MatrixXd::Constant(M, 1, 1.0), t);
 
-        MatrixXd residual = 1/s * R_tilde.transpose() * (X_hat_flat - t_tilde) - Y_flat;
-        v_hat_flat = pow(s, 2) / sigma2 * big_sigma_tilde * nu_tilde.asDiagonal() * residual;
-        MatrixXd v_hat_t = v_hat_flat.replicate(1, 1);
-        v_hat_t.resize(3, M);
-        v_hat = v_hat_t.transpose();
+            MatrixXd residual = 1/s * R_tilde.transpose() * (X_hat_flat - t_tilde) - Y_flat;
+            v_hat_flat = pow(s, 2) / sigma2 * big_sigma_tilde * nu_tilde.asDiagonal() * residual;
+            MatrixXd v_hat_t = v_hat_flat.replicate(1, 1);
+            v_hat_t.resize(3, M);
+            v_hat = v_hat_t.transpose();
+        }
+        else {
+            std::cout << "in else statment" << std::endl;
+
+            MatrixXd nu_corr = J.rowwise().sum();
+            MatrixXd nu_corr_tilde = Eigen::kroneckerProduct(nu_corr, MatrixXd::Constant(3, 1, 1.0));
+            MatrixXd J_tilde = Eigen::kroneckerProduct(J, MatrixXd::Identity(3, 3));
+
+            std::cout << "after calculating J and nu tilde" << std::endl;
+            
+            big_sigma = lambda * G.inverse();
+            big_sigma += pow(s, 2)/sigma2 * nu.asDiagonal();
+            big_sigma += pow(s, 2)/zeta * nu_corr.asDiagonal();
+            big_sigma = big_sigma.inverse();
+
+            std::cout << "after calculating big_sigma" << std::endl;
+
+            MatrixXd big_sigma_tilde = Eigen::kroneckerProduct(big_sigma, MatrixXd::Identity(3, 3));
+            MatrixXd R_tilde = Eigen::kroneckerProduct(R, MatrixXd::Identity(M, M));
+            MatrixXd t_tilde = Eigen::kroneckerProduct(MatrixXd::Constant(M, 1, 1.0), t);
+
+            std::cout << "before calculating residual" << std::endl;
+
+            MatrixXd residual = 1/s * R_tilde.transpose() * (X_hat_flat - t_tilde) - Y_flat;
+            MatrixXd dv_residual = nu_corr_tilde.asDiagonal() * (1/s * R_tilde.transpose() * J_tilde * X_flat - 1/s * R_tilde.transpose() * t_tilde - Y_flat);
+            v_hat_flat = pow(s, 2) / sigma2 * big_sigma_tilde * nu_tilde.asDiagonal() * residual + pow(s, 2) / zeta * big_sigma_tilde * dv_residual;
+            MatrixXd v_hat_t = v_hat_flat.replicate(1, 1);
+            v_hat_t.resize(3, M);
+            v_hat = v_hat_t.transpose();
+        }
 
         MatrixXd u_hat = Y + v_hat;
         MatrixXd u_hat_flat = Y_flat + v_hat_flat;
@@ -1048,7 +1102,9 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
         correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 2, alignment_node_idx);
     }
 
+    std::cout << "finished traversal" << std::endl;
+
     // include_lle == false because we have no space to discuss it in the paper
     // ecpd_lle (X_orig, Y_, sigma2_, beta_, lambda_, lle_weight_, mu_, max_iter_, tol_, include_lle_, use_geodesic_, use_prev_sigma2_, true, correspondence_priors_, alpha_, kernel_, occluded_nodes, k_vis_, bmask_transformed_normalized, mat_max);
-    bcpd(X_orig, Y_, sigma2_, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_);
+    bcpd(X_orig, Y_, sigma2_, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_, 1e-3);
 }

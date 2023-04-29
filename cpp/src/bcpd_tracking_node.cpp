@@ -286,7 +286,7 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                 }
 
                 tracker.initialize_nodes(Y);
-                // tracker.initialize_geodesic_coord(converted_node_coord);
+                tracker.initialize_geodesic_coord(converted_node_coord);
 
                 for (int i = 0; i < Y.rows() - 1; i ++) {
                     total_len += pt2pt_dis(Y.row(i), Y.row(i+1));
@@ -305,14 +305,16 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                 }
 
                 tracker.initialize_nodes(Y);
-                // tracker.initialize_geodesic_coord(converted_node_coord);
+                tracker.initialize_geodesic_coord(converted_node_coord);
             }
 
             initialized = true;
         } 
         else {
             // ecpd_lle (X, Y, sigma2, 0.5, 1, 1, 0.05, 50, 0.00001, false, true, false, false, {}, 0, "Gaussian");
-            tracker.bcpd(X, Y, sigma2, beta, lambda, omega, kappa, gam, max_iter, tol, use_prev_sigma2);
+            // tracker.bcpd(X, Y, sigma2, beta, lambda, omega, kappa, gam, max_iter, tol, use_prev_sigma2);
+            tracker.tracking_step(X, bmask_transformed_normalized, mask_dist_threshold, mat_max);
+            Y = tracker.get_tracking_result();
         }
 
         time_diff = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - cur_time).count();

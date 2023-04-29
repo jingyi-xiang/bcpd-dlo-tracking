@@ -85,7 +85,7 @@ class bcpd_tracker
         // omega      -- the outlier probability
         // kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         // gamma      -- the scale factor of sigma2_0
-        void bcpd (MatrixXd X,
+        void bcpd (MatrixXd X_orig,
                    MatrixXd& Y_hat,
                    double& sigma2,
                    double beta,
@@ -95,7 +95,9 @@ class bcpd_tracker
                    double gamma,
                    int max_iter = 50,
                    double tol = 0.00001,
-                   bool use_prev_sigma2 = false);
+                   bool use_prev_sigma2 = false,
+                   std::vector<MatrixXd> correspondence_priors = {},
+                   double zeta = 0);
 
         void cpd_lle (MatrixXd X,
                       MatrixXd& Y,
