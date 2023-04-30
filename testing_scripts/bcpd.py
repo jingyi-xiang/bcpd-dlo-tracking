@@ -180,11 +180,39 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
 
         # ===== DO NOT update s, R, t lol =====
         sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
-        
-        s = 1
-        R = np.eye(3)
-        t = np.zeros((3, 1))
-        Y_hat = u_hat.copy()
+
+        if corr_priors is None or len(corr_priors) == 0:
+            X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
+            u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+
+            S_xu = np.zeros((3, 3))
+            S_uu = np.zeros((3, 3))
+            for m in range (0, M):
+                S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+                S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+
+            S_xu /= N_hat
+            S_uu /= N_hat
+            S_uu += sigma2_bar*np.eye(3)
+            U, _, Vt = np.linalg.svd(S_xu)
+            middle_mat = np.eye(3)
+            middle_mat[2, 2] = np.linalg.det(U @ Vt.T)
+            R = U @ middle_mat @ Vt
+
+            s = np.trace(R @ S_xu) / np.trace(S_uu)
+            t = X_bar - s*R @ u_bar
+
+            T_hat = np.eye(4)
+            T_hat[0:3, 0:3] = s*R
+            T_hat[0:3, 3] = t
+            Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
+
+            t = t.reshape((3, 1))
+        else:
+            s = 1
+            R = np.eye(3)
+            t = np.zeros((3, 1))
+            Y_hat = u_hat.copy()
 
         nu_prime_tilde = np.kron(nu_prime, np.ones(3))
         sigma2 = 1/(N_hat*3) * (X_flat.reshape(1, N*3) @ np.diag(nu_prime_tilde) @ X_flat.reshape(N*3, 1) - 2*X_flat.reshape(1, N*3) @ P_tilde.T @ Y_hat.flatten() + (Y_hat.flatten()).reshape(1, M*3) @ np.diag(nu_tilde) @ (Y_hat.flatten())) + s**2 * sigma2_bar
@@ -254,7 +282,7 @@ if __name__ == "__main__":
     plt.show(Y_pc, X_pc, Y_hat_pc, Y_corr_pc)
 
     # more frames?
-    num_of_frames = 10
+    num_of_frames = 0
     for i in range (2, num_of_frames):  # the next frame is frame 2
         sample_prefix = ''
         if len(str(i)) == 1:
