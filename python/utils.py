@@ -240,7 +240,7 @@ def traverse_euclidean (geodesic_coord, guide_nodes, visible_nodes, alignment, a
             found_intersection = False
             intersection = []
 
-            for i in range (last_found_index, len(consecutive_visible_nodes)-3):
+            for i in range (last_found_index, len(consecutive_visible_nodes)-1):
                 intersections = line_sphere_intersection(guide_nodes[i], guide_nodes[i+1], cur_center, look_ahead_dist)
                 intersections = np.array(intersections)
 
@@ -295,6 +295,109 @@ def traverse_euclidean (geodesic_coord, guide_nodes, visible_nodes, alignment, a
             intersection = []
 
             for i in range (last_found_index, len(guide_nodes) - len(consecutive_visible_nodes), -1):
+                intersections = line_sphere_intersection(guide_nodes[i], guide_nodes[i-1], cur_center, look_ahead_dist)
+                intersections = np.array(intersections)
+
+                #  if no intersection found
+                if len(intersections) == 0:
+                    continue
+                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i-1] > pt2pt_dis(cur_center, guide_nodes[i-1]))):
+                    continue
+                else:
+                    found_intersection = True
+                    last_found_index = i
+
+                    if len(intersections) == 2:
+                        if pt2pt_dis(intersections[0], guide_nodes[i-1]) <= pt2pt_dis(intersections[1], guide_nodes[i-1]):
+                            # the first solution is closer
+                            intersection = intersections[0].copy()
+                            cur_center = intersections[0].copy()
+                        else:
+                            # the second one is closer
+                            intersection = intersections[1].copy()
+                            cur_center = intersections[1].copy()
+                    else:
+                        intersection = intersections[0].copy()
+                        cur_center = intersections[0].copy()
+                    break
+            
+            if not found_intersection:
+                break
+            else:
+                node_pairs.append([seg_dist_it-1, intersection[0], intersection[1], intersection[2]])
+                seg_dist_it -= 1
+    
+    else:
+        node_pairs.append([visible_nodes[alignment_node_idx], guide_nodes[alignment_node_idx, 0], guide_nodes[alignment_node_idx, 1], guide_nodes[alignment_node_idx, 2]])
+
+        consecutive_visible_nodes_2 = [visible_nodes[alignment_node_idx]]
+        for i in range (alignment_node_idx+1, len(visible_nodes)):
+            if visible_nodes[i] - visible_nodes[i-1] == 1:
+                consecutive_visible_nodes_2.append(visible_nodes[i])
+            else:
+                break
+        
+        # ===== traverse from the alignment node to the tail node =====
+        last_found_index = alignment_node_idx
+        seg_dist_it = visible_nodes[alignment_node_idx]
+        cur_center = guide_nodes[alignment_node_idx]
+
+        while (last_found_index+1 <= alignment_node_idx+len(consecutive_visible_nodes_2)-1) and (seg_dist_it+1 <= len(geodesic_coord)-1):
+            look_ahead_dist = np.abs(geodesic_coord[seg_dist_it+1] - geodesic_coord[seg_dist_it])
+            found_intersection = False
+            intersection = []
+
+            for i in range (last_found_index, alignment_node_idx + len(consecutive_visible_nodes_2) - 1):
+                intersections = line_sphere_intersection(guide_nodes[i], guide_nodes[i+1], cur_center, look_ahead_dist)
+                intersections = np.array(intersections)
+
+                #  if no intersection found
+                if len(intersections) == 0:
+                    continue
+                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i+1] > pt2pt_dis(cur_center, guide_nodes[i+1]))):
+                    continue
+                else:
+                    found_intersection = True
+                    last_found_index = i
+
+                    if len(intersections) == 2:
+                        if pt2pt_dis(intersections[0], guide_nodes[i+1]) <= pt2pt_dis(intersections[1], guide_nodes[i+1]):
+                            # the first solution is closer
+                            intersection = intersections[0].copy()
+                            cur_center = intersections[0].copy()
+                        else:
+                            # the second one is closer
+                            intersection = intersections[1].copy()
+                            cur_center = intersections[1].copy()
+                    else:
+                        intersection = intersections[0].copy()
+                        cur_center = intersections[0].copy()
+                    break
+            
+            if not found_intersection:
+                break
+            else:
+                node_pairs.append([seg_dist_it+1, intersection[0], intersection[1], intersection[2]])
+                seg_dist_it += 1
+        
+        # ===== traverse from the alignment node to the head node =====
+        consecutive_visible_nodes_1 = [visible_nodes[alignment_node_idx]]
+        for i in range (alignment_node_idx-1, -1, -1):
+            if visible_nodes[i+1] - visible_nodes[i] == 1:
+                consecutive_visible_nodes_1.append(visible_nodes[i])
+            else:
+                break
+        
+        last_found_index = alignment_node_idx
+        seg_dist_it = visible_nodes[alignment_node_idx]
+        cur_center = guide_nodes[alignment_node_idx]
+
+        while (last_found_index-1 >= alignment_node_idx-len(consecutive_visible_nodes_1)) and (seg_dist_it-1 >= 0):
+            look_ahead_dist = np.abs(geodesic_coord[seg_dist_it] - geodesic_coord[seg_dist_it-1])
+            found_intersection = False
+            intersection = []
+
+            for i in range (last_found_index, 0, -1):
                 intersections = line_sphere_intersection(guide_nodes[i], guide_nodes[i-1], cur_center, look_ahead_dist)
                 intersections = np.array(intersections)
 

@@ -425,7 +425,15 @@ def callback (rgb, pc):
         visible_nodes = np.arange(0, len(nodes))[vis < mask_dis_threshold]
         guide_nodes, sigma2_gn = cpd_lle(X=filtered_pc, Y_0=nodes[visible_nodes], beta=1, alpha=1, gamma=5, mu=0.05, max_iter=30, tol=0.00001, include_lle=True, use_geodesic=True, use_prev_sigma2=True, sigma2_0=sigma2_gn)
 
-        if visible_nodes[0] == 0:
+        if len(visible_nodes) == len(nodes):
+            print("all visible")
+            corr_priors = traverse_euclidean(geodesic_coord, guide_nodes, visible_nodes, 0)
+        elif visible_nodes[0] == 0 and visible_nodes[-1] == len(nodes)-1:
+            print("mid-section occluded")
+            corr_priors_1 = traverse_euclidean(geodesic_coord, guide_nodes, visible_nodes, 0)
+            corr_priors_2 = traverse_euclidean(geodesic_coord, guide_nodes, visible_nodes, 1)
+            corr_priors = np.vstack((corr_priors_1, corr_priors_2))
+        elif visible_nodes[0] == 0:
             print("tail occluded")
             corr_priors = traverse_euclidean(geodesic_coord, guide_nodes, visible_nodes, 0)
         else:
