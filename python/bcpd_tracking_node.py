@@ -83,7 +83,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     # G = G_hat.astype(np.float64)
 
     # initialize sigma2
-    if sigma2_0 is None:
+    if sigma2_0 is None or sigma2_0 == 0:
         diff = X[None, :, :] - Y[:, None, :]
         err = diff ** 2
         sigma2 = gamma * np.sum(err) / (3 * M * N)
@@ -96,6 +96,10 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     prev_sigma2 = sigma2
 
     for i in range (0, max_iter):
+
+        print("iteration =", i)
+
+        print("sigma2 =", sigma2)
 
         # ===== update P and related terms =====
         pts_dis_sq = np.sum((X[None, :, :] - Y_hat[:, None, :]) ** 2, axis=2)
@@ -172,38 +176,39 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # ===== DO NOT update s, R, t lol =====
         sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
 
-        # # if corr_priors is None or len(corr_priors) == 0:
-        # X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-        # u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+        if corr_priors is None or len(corr_priors) == 0:
+            X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
+            u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
 
-        # S_xu = np.zeros((3, 3))
-        # S_uu = np.zeros((3, 3))
-        # for m in range (0, M):
-        #     S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-        #     S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+            S_xu = np.zeros((3, 3))
+            S_uu = np.zeros((3, 3))
+            for m in range (0, M):
+                S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+                S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
 
-        # S_xu /= N_hat
-        # S_uu /= N_hat
-        # S_uu += sigma2_bar*np.eye(3)
-        # U, _, Vt = np.linalg.svd(S_xu)
-        # middle_mat = np.eye(3)
-        # middle_mat[2, 2] = np.linalg.det(U @ Vt.T)
-        # R = U @ middle_mat @ Vt
+            S_xu /= N_hat
+            S_uu /= N_hat
+            S_uu += sigma2_bar*np.eye(3)
+            U, _, Vt = np.linalg.svd(S_xu)
+            middle_mat = np.eye(3)
+            middle_mat[2, 2] = np.linalg.det(U @ Vt.T)
+            R = U @ middle_mat @ Vt
 
-        # s = np.trace(R @ S_xu) / np.trace(S_uu)
-        # t = X_bar - s*R @ u_bar
+            s = np.trace(R @ S_xu) / np.trace(S_uu)
+            t = X_bar - s*R @ u_bar
 
-        # T_hat = np.eye(4)
-        # T_hat[0:3, 0:3] = s*R
-        # T_hat[0:3, 3] = t
-        # Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
+            T_hat = np.eye(4)
+            T_hat[0:3, 0:3] = s*R
+            T_hat[0:3, 3] = t
+            Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
 
-        # t = t.reshape((3, 1))
+            t = t.reshape((3, 1))
 
-        s = 1
-        R = np.eye(3)
-        t = np.zeros((3, 1))
-        Y_hat = u_hat.copy()
+        else:
+            s = 1
+            R = np.eye(3)
+            t = np.zeros((3, 1))
+            Y_hat = u_hat.copy()
 
         nu_prime_tilde = np.kron(nu_prime, np.ones(3))
         sigma2 = 1/(N_hat*3) * (X_flat.reshape(1, N*3) @ np.diag(nu_prime_tilde) @ X_flat.reshape(N*3, 1) - 2*X_flat.reshape(1, N*3) @ P_tilde.T @ Y_hat.flatten() + (Y_hat.flatten()).reshape(1, M*3) @ np.diag(nu_tilde) @ (Y_hat.flatten())) + s**2 * sigma2_bar
@@ -240,7 +245,7 @@ initialized = False
 init_nodes = []
 nodes = []
 cur_time = time.time()
-sigma2 = 0
+sigma2 = 1e-5
 guide_nodes = []
 geodesic_coord = []
 total_len = 0.0
@@ -383,7 +388,6 @@ def callback (rgb, pc):
                 if cur_pt[2] > 0.55:
                     guide_nodes.append(cur_pt)
 
-            sigma2 = 1e-5
             init_nodes = np.array(sort_pts(np.array(guide_nodes)))
         
         # compute preset coord and total len. one time action
@@ -447,7 +451,14 @@ def callback (rgb, pc):
         # kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         # gamma      -- the scale factor of sigma2_0
         # beta       -- controls the influence of motion coherence
-        nodes, sigma2, _, _, _, _ = bcpd(X=filtered_pc, Y=nodes, beta=200, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=corr_priors, zeta=1e-3)
+        # print(corr_priors)
+        Y_hat, sigma2, v_vis, s, R, t = bcpd(X=filtered_pc, Y=nodes[visible_nodes], beta=100, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-6)
+        Y_hat_without_rigid_transform = (1/s * R.T @ (Y_hat.T - np.full((3, len(Y_hat)), t))).T
+        new_corr_priors = np.hstack((visible_nodes.reshape(len(visible_nodes), 1), Y_hat_without_rigid_transform))
+        
+        nodes, _, _, _, _, _ = bcpd(X=Y_hat_without_rigid_transform, Y=nodes, beta=1500, omega=0.0, lam=1, kappa=1e16, gamma=100, max_iter=50, tol=0.0001, sigma2_0=None, corr_priors=new_corr_priors, zeta=1e-6)
+        nodes = (s * R @ nodes.T + np.full((3, len(nodes)), t)).T
+
         init_nodes = nodes.copy()
 
         # project and pub tracking image
@@ -480,6 +491,8 @@ def callback (rgb, pc):
         tracking_img_msg = ros_numpy.msgify(Image, tracking_img, 'rgb8')
         tracking_img_msg.header = head
         tracking_img_pub.publish(tracking_img_msg)
+
+        # nodes, sigma2, _, _, _, _ = bcpd(X=filtered_pc, Y=nodes, beta=200, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=corr_priors, zeta=1e-3)
 
     results = ndarray2MarkerArray(nodes, [255, 150, 0, 0.75], [0, 255, 0, 0.75], head)
     results_pub.publish(results)
