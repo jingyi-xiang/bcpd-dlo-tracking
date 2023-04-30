@@ -329,8 +329,8 @@ def callback (rgb, pc):
         filtered_pc = filtered_pc[filtered_pc[:, 0] > -0.2]
     else:
         # filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.58]
-        filtered_pc = filtered_pc[(filtered_pc[:, 2] > 0.58) & (filtered_pc[:, 0] > -0.15) & (filtered_pc[:, 1] > -0.15)]
-        # filtered_pc = filtered_pc[~(((filtered_pc[:, 0] < 0.0) & (filtered_pc[:, 1] < 0.05)) | (filtered_pc[:, 2] < 0.58) | (filtered_pc[:, 0] < -0.2) | ((filtered_pc[:, 0] < 0.1) & (filtered_pc[:, 1] < -0.05)))]
+        # filtered_pc = filtered_pc[(filtered_pc[:, 2] > 0.58) & (filtered_pc[:, 0] > -0.15) & (filtered_pc[:, 1] > -0.15)]
+        filtered_pc = filtered_pc[~(((filtered_pc[:, 0] < 0.0) & (filtered_pc[:, 1] < 0.05)) | (filtered_pc[:, 2] < 0.58) | (filtered_pc[:, 0] < -0.2) | ((filtered_pc[:, 0] < 0.1) & (filtered_pc[:, 1] < -0.05)))]
     # print('filtered pc shape = ', np.shape(filtered_pc))
 
     # downsample with open3d
@@ -382,11 +382,11 @@ def callback (rgb, pc):
                 if cur_pt[2] > 0.55:
                     guide_nodes.append(cur_pt)
 
-            for i in range(len(keypoints_2)):
-                blob_image_center.append((keypoints_2[i].pt[0],keypoints_2[i].pt[1]))
-                cur_pt = cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])]
-                if cur_pt[2] > 0.55:
-                    guide_nodes.append(cur_pt)
+            # for i in range(len(keypoints_2)):
+            #     blob_image_center.append((keypoints_2[i].pt[0],keypoints_2[i].pt[1]))
+            #     cur_pt = cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])]
+            #     if cur_pt[2] > 0.55:
+            #         guide_nodes.append(cur_pt)
 
             init_nodes = np.array(sort_pts(np.array(guide_nodes)))
         
@@ -407,7 +407,7 @@ def callback (rgb, pc):
         print("Initialized")
     else:
         # determined which nodes are occluded from mask information
-        mask_dis_threshold = 10
+        mask_dis_threshold = 20
         # projection
         init_nodes_h = np.hstack((init_nodes, np.ones((len(init_nodes), 1))))
         image_coords = np.matmul(proj_matrix, init_nodes_h.T).T
@@ -451,15 +451,14 @@ def callback (rgb, pc):
         # kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         # gamma      -- the scale factor of sigma2_0
         # beta       -- controls the influence of motion coherence
-        print(corr_priors)
-        Y_hat, sigma2, v_vis, s, R, t = bcpd(X=filtered_pc, Y=nodes[visible_nodes], beta=1000, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-6)
+        # print(corr_priors)
+        Y_hat, sigma2, v_vis, s, R, t = bcpd(X=filtered_pc, Y=nodes[visible_nodes], beta=500, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-6)
         Y_hat = corr_priors[:, 1:4].copy()
         Y_hat_without_rigid_transform = (1/s * R.T @ (Y_hat.T - np.full((3, len(Y_hat)), t))).T
         X_without_rigid_transform = (1/s * R.T @ (filtered_pc.T - np.full((3, len(filtered_pc)), t))).T
         new_corr_priors = np.hstack((corr_priors[:, 0].reshape(len(corr_priors), 1), Y_hat_without_rigid_transform))
         # new_corr_priors = np.hstack((visible_nodes.reshape(len(visible_nodes), 1), Y_hat_without_rigid_transform))
-        
-        nodes, _, _, _, _, _ = bcpd(X=X_without_rigid_transform, Y=nodes, beta=1500, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=new_corr_priors, zeta=1e-6)
+        nodes, _, _, _, _, _ = bcpd(X=X_without_rigid_transform, Y=nodes, beta=500, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=new_corr_priors, zeta=1e-10)
         nodes = (s * R @ nodes.T + np.full((3, len(nodes)), t)).T
 
         init_nodes = nodes.copy()

@@ -5,7 +5,7 @@
     <arg name="use_eval_rope" default="true" />
 
     <node name="bcpd" pkg="bcpd-dlo-tracking" type="bcpd" output="screen">
-        <param name="beta" value="500" />
+        <param name="beta" value="100" />
         <param name="lambda" value="1" />
 
         <param name="omega" value="0.0" />

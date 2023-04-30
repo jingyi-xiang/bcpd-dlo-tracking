@@ -824,8 +824,8 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         positive_eig_values.row(i) = collection_of_positive_eigenvalues[i];
     }
     MatrixXcd G_hat = positive_eig_vectors * positive_eig_values.asDiagonal() * positive_eig_vectors.transpose();
-    MatrixXd G = G_hat.real();
-    // MatrixXd G = G_geodesic.replicate(1, 1);
+    // MatrixXd G = G_hat.real();
+    MatrixXd G = G_orig.replicate(1, 1);
 
     // std::cout << "===== original G =====" << std::endl;
     // std::cout << G_orig << std::endl;
@@ -922,7 +922,7 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
             big_sigma += pow(s, 2)/sigma2 * nu.asDiagonal();
             big_sigma = big_sigma.inverse();
             MatrixXd big_sigma_tilde = Eigen::kroneckerProduct(big_sigma, MatrixXd::Identity(3, 3));
-            MatrixXd R_tilde = Eigen::kroneckerProduct(R, MatrixXd::Identity(M, M));
+            MatrixXd R_tilde = Eigen::kroneckerProduct(MatrixXd::Identity(M, M), R);
             MatrixXd t_tilde = Eigen::kroneckerProduct(MatrixXd::Constant(M, 1, 1.0), t);
 
             MatrixXd residual = 1/s * R_tilde.transpose() * (X_hat_flat - t_tilde) - Y_flat;
@@ -948,7 +948,7 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
             std::cout << "after calculating big_sigma" << std::endl;
 
             MatrixXd big_sigma_tilde = Eigen::kroneckerProduct(big_sigma, MatrixXd::Identity(3, 3));
-            MatrixXd R_tilde = Eigen::kroneckerProduct(R, MatrixXd::Identity(M, M));
+            MatrixXd R_tilde = Eigen::kroneckerProduct(MatrixXd::Identity(M, M), R);
             MatrixXd t_tilde = Eigen::kroneckerProduct(MatrixXd::Constant(M, 1, 1.0), t);
 
             std::cout << "before calculating residual" << std::endl;
@@ -976,36 +976,36 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         // ===== update s, R, t, sigma2, y_hat =====
         // nu is M by 1
         MatrixXd nu_expanded = nu.replicate(1, 3);
-        // MatrixXd X_bar = (nu_expanded.cwiseProduct(X_hat)).colwise().sum() / N_hat;
-        // MatrixXd u_bar = (nu_expanded.cwiseProduct(u_hat)).colwise().sum() / N_hat;
+        MatrixXd X_bar = (nu_expanded.cwiseProduct(X_hat)).colwise().sum() / N_hat;
+        MatrixXd u_bar = (nu_expanded.cwiseProduct(u_hat)).colwise().sum() / N_hat;
 
         // X_bar is 1 by 3
         double sigma2_bar = (nu.cwiseProduct(big_sigma.diagonal())).sum() / N_hat;
 
-        // MatrixXd S_xu = MatrixXd::Zero(3, 3);
-        // MatrixXd S_uu = MatrixXd::Zero(3, 3);
-        // for (int m = 0; m < M; m ++) {
-        //     MatrixXd X_diff = X_hat.row(m) - X_bar;
-        //     MatrixXd u_diff = u_hat.row(m) - u_bar;
-        //     X_diff.resize(3, 1);
-        //     u_diff.resize(1, 3);
-        //     S_xu += nu(m, 0) * (X_diff * u_diff);
-        //     S_uu += nu(m, 0) * (u_diff.transpose() * u_diff);
-        // }
-        // S_xu /= N_hat;
-        // S_uu /= N_hat;
-        // S_uu += sigma2_bar * MatrixXd::Identity(3, 3);
-        // Eigen::JacobiSVD<Eigen::MatrixXd> svd(S_xu, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        // MatrixXd U = svd.matrixU();
-        // MatrixXd S = svd.singularValues();
-        // MatrixXd V = svd.matrixV();
-        // MatrixXd Vt = V.transpose();
-        // MatrixXd middle_mat = MatrixXd::Identity(3, 3);
-        // middle_mat(2, 2) = (U * Vt).determinant();
-        // R = U * middle_mat * Vt;
+        MatrixXd S_xu = MatrixXd::Zero(3, 3);
+        MatrixXd S_uu = MatrixXd::Zero(3, 3);
+        for (int m = 0; m < M; m ++) {
+            MatrixXd X_diff = X_hat.row(m) - X_bar;
+            MatrixXd u_diff = u_hat.row(m) - u_bar;
+            X_diff.resize(3, 1);
+            u_diff.resize(1, 3);
+            S_xu += nu(m, 0) * (X_diff * u_diff);
+            S_uu += nu(m, 0) * (u_diff.transpose() * u_diff);
+        }
+        S_xu /= N_hat;
+        S_uu /= N_hat;
+        S_uu += sigma2_bar * MatrixXd::Identity(3, 3);
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(S_xu, Eigen::ComputeFullU | Eigen::ComputeFullV);
+        MatrixXd U = svd.matrixU();
+        MatrixXd S = svd.singularValues();
+        MatrixXd V = svd.matrixV();
+        MatrixXd Vt = V.transpose();
+        MatrixXd middle_mat = MatrixXd::Identity(3, 3);
+        middle_mat(2, 2) = (U * Vt).determinant();
+        R = U * middle_mat * Vt;
 
-        // s = (R * S_xu).trace() / S_uu.trace();
-        // t = X_bar.transpose() - s*R*u_bar.transpose();
+        s = (R * S_xu).trace() / S_uu.trace();
+        t = X_bar.transpose() - s*R*u_bar.transpose();
 
         MatrixXd T_hat = MatrixXd::Identity(4, 4);
         T_hat.block<3, 3>(0, 0) = s*R;
@@ -1021,6 +1021,9 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         MatrixXd nu_prime_tilde = Eigen::kroneckerProduct(nu_prime, MatrixXd::Constant(1, 3, 1.0));
         MatrixXd sigma2_mat = 1/(N_hat*3) * (X_flat.transpose()*nu_prime_tilde.asDiagonal()*X_flat - 2*X_flat.transpose()*P_tilde.transpose()*Y_hat_flat + Y_hat_flat.transpose()*nu_tilde.asDiagonal()*Y_hat_flat) + pow(s, 2) * MatrixXd::Constant(1, 1, sigma2_bar);
         sigma2 = abs(sigma2_mat(0, 0));
+
+        std::cout << "=== T_hat ===" << std::endl;
+        std::cout << T_hat << std::endl;
 
         std::cout << "=== sigma2 ===" << std::endl;
         std::cout << sigma2_mat << std::endl;
@@ -1166,5 +1169,5 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
 
     // include_lle == false because we have no space to discuss it in the paper
     // ecpd_lle (X_orig, Y_, sigma2_, beta_, lambda_, lle_weight_, mu_, max_iter_, tol_, include_lle_, use_geodesic_, use_prev_sigma2_, true, correspondence_priors_, alpha_, kernel_, occluded_nodes, k_vis_, bmask_transformed_normalized, mat_max);
-    bcpd(X_orig, Y_, sigma2_, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_, zeta_);
+    bcpd(X_orig, Y_, sigma2_, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, {}, zeta_);
 }
