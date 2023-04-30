@@ -452,13 +452,14 @@ def callback (rgb, pc):
         # gamma      -- the scale factor of sigma2_0
         # beta       -- controls the influence of motion coherence
         print(corr_priors)
-        Y_hat, sigma2, v_vis, s, R, t = bcpd(X=filtered_pc, Y=nodes[visible_nodes], beta=100, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-6)
+        Y_hat, sigma2, v_vis, s, R, t = bcpd(X=filtered_pc, Y=nodes[visible_nodes], beta=1000, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-6)
         Y_hat = corr_priors[:, 1:4].copy()
         Y_hat_without_rigid_transform = (1/s * R.T @ (Y_hat.T - np.full((3, len(Y_hat)), t))).T
+        X_without_rigid_transform = (1/s * R.T @ (filtered_pc.T - np.full((3, len(filtered_pc)), t))).T
         new_corr_priors = np.hstack((corr_priors[:, 0].reshape(len(corr_priors), 1), Y_hat_without_rigid_transform))
         # new_corr_priors = np.hstack((visible_nodes.reshape(len(visible_nodes), 1), Y_hat_without_rigid_transform))
         
-        nodes, _, _, _, _, _ = bcpd(X=Y_hat_without_rigid_transform, Y=nodes, beta=1500, omega=0.0, lam=1, kappa=1e16, gamma=100, max_iter=50, tol=0.0001, sigma2_0=None, corr_priors=new_corr_priors, zeta=1e-6)
+        nodes, _, _, _, _, _ = bcpd(X=X_without_rigid_transform, Y=nodes, beta=1500, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=new_corr_priors, zeta=1e-6)
         nodes = (s * R @ nodes.T + np.full((3, len(nodes)), t)).T
 
         init_nodes = nodes.copy()
