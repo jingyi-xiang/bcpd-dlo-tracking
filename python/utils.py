@@ -247,7 +247,7 @@ def traverse_euclidean (geodesic_coord, guide_nodes, visible_nodes, alignment, a
                 #  if no intersection found
                 if len(intersections) == 0:
                     continue
-                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i+1] > pt2pt_dis(cur_center, guide_nodes[i+1]))):
+                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i+1]) > pt2pt_dis(cur_center, guide_nodes[i+1])):
                     continue
                 else:
                     found_intersection = True
@@ -301,7 +301,7 @@ def traverse_euclidean (geodesic_coord, guide_nodes, visible_nodes, alignment, a
                 #  if no intersection found
                 if len(intersections) == 0:
                     continue
-                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i-1] > pt2pt_dis(cur_center, guide_nodes[i-1]))):
+                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i-1]) > pt2pt_dis(cur_center, guide_nodes[i-1])):
                     continue
                 else:
                     found_intersection = True
@@ -354,7 +354,7 @@ def traverse_euclidean (geodesic_coord, guide_nodes, visible_nodes, alignment, a
                 #  if no intersection found
                 if len(intersections) == 0:
                     continue
-                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i+1] > pt2pt_dis(cur_center, guide_nodes[i+1]))):
+                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i+1]) > pt2pt_dis(cur_center, guide_nodes[i+1])):
                     continue
                 else:
                     found_intersection = True
@@ -404,7 +404,7 @@ def traverse_euclidean (geodesic_coord, guide_nodes, visible_nodes, alignment, a
                 #  if no intersection found
                 if len(intersections) == 0:
                     continue
-                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i-1] > pt2pt_dis(cur_center, guide_nodes[i-1]))):
+                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i-1]) > pt2pt_dis(cur_center, guide_nodes[i-1])):
                     continue
                 else:
                     found_intersection = True
