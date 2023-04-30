@@ -56,6 +56,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
 
     Y_hat = Y.copy()
     v_hat = np.zeros((M, 3))
+    T_hat = np.eye(4)
     Y_hat_flat = Y_hat.flatten().reshape(M*3, 1)
     v_hat_flat = v_hat.flatten().reshape(M*3, 1)
 
@@ -238,7 +239,7 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # plt.show(Y_pc, X_pc, Y_hat_pc)
         # print(sigma2)
 
-    return Y_hat, sigma2
+    return Y_hat, sigma2, v_hat, s, R, t
 
 if __name__ == "__main__":
     # load recorded data
@@ -255,8 +256,8 @@ if __name__ == "__main__":
     Y_corr, _ = pkl.load(f, encoding="bytes")
     f.close()
     Y_corr = np.flip(Y_corr, 0)
-    Y_corr = np.array(Y_corr)[20:35, :]
-    Y_corr = np.hstack((np.arange(20, 35, 1).reshape(len(Y_corr), 1), Y_corr))
+    Y_corr = np.array(Y_corr)[0:25, :]
+    Y_corr = np.hstack((np.arange(0, 25, 1).reshape(len(Y_corr), 1), Y_corr))
 
     # ===== load X as target point cloud =====
     f = open(data_dir + '001_pcl.json', 'rb')
@@ -267,16 +268,23 @@ if __name__ == "__main__":
     X = X[::int(1/0.025)]
 
     # occlusion
-    # X = X[X[:, 0] > -0.05]
+    X = X[((X[:, 0] < 0.0) | (X[:, 1] < 0.0))]
 
     # run bcpd
-    Y_hat, sigma2 = bcpd(X=X, Y=Y, beta=100, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-6)
+    Y_hat, sigma2, v_hat, s, R, t = bcpd(X=X, Y=Y[0:27], beta=50, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-6)
+    Y_hat_without_rigid_transform = (1/s * R.T @ (Y_hat.T - np.full((3, len(Y_hat)), t))).T
+
+    # TEST
+    Y_corr = np.hstack((np.arange(0, 27, 1).reshape(len(Y_hat), 1), Y_hat))
+    Y_hat_2, sigma2_2, v_hat_2, _, _, _ = bcpd(X=X, Y=Y, beta=300, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=100, tol=0.0001, sigma2_0=sigma2, corr_priors=Y_corr, zeta=1e-6)
+    Y_hat = (s * R @ Y_hat_2.T + np.full((3, len(Y_hat_2)), t)).T
 
     # test: show both sets of nodes
     Y_pc = Points(Y, c=(255, 0, 0), alpha=0.5, r=20)
     X_pc = Points(X, c=(0, 0, 0), r=3)
     Y_hat_pc = Points(Y_hat, c=(0, 255, 0), alpha=0.5, r=20)
-    Y_corr_pc = Points(Y_corr[:, 1:4], c=(0, 0, 255), alpha=0.5, r=20)
+    # Y_corr_pc = Points(Y_corr[:, 1:4], c=(0, 0, 255), alpha=0.5, r=20)
+    Y_corr_pc = Points(Y_hat_without_rigid_transform, c=(0, 0, 255), alpha=0.5, r=20)
     
     plt = Plotter()
     plt.show(Y_pc, X_pc, Y_hat_pc, Y_corr_pc)
