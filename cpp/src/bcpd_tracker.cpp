@@ -2,6 +2,7 @@
 #include "../include/bcpd_tracker.h"
 
 using Eigen::MatrixXd;
+using Eigen::MatrixXcd;
 using Eigen::RowVectorXd;
 using cv::Mat;
 
@@ -738,7 +739,7 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
             X(i, 0) = correspondence_priors[i - X_orig.rows()](0, 1);
             X(i, 1) = correspondence_priors[i - X_orig.rows()](0, 2);
             X(i, 2) = correspondence_priors[i - X_orig.rows()](0, 3);
-            std::cout << "index = " << index << std::endl;
+            // std::cout << "index = " << index << std::endl;
             J(index, i) = 1;
         }
     }
@@ -751,11 +752,6 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
     X_flat.resize(N*3, 1);
     Y_flat.resize(M*3, 1);
 
-    std::cout << X.row(1) << std::endl;
-    std::cout << X_flat(3, 0) << ", " << X_flat(4, 0) << ", " << X_flat(5, 0) << std::endl;
-    std::cout << Y_hat.row(1) << std::endl;
-    std::cout << Y_flat(3, 0) << ", " << Y_flat(4, 0) << ", " << Y_flat(5, 0) << std::endl;
-
     MatrixXd Y = Y_hat.replicate(1, 1);
     MatrixXd v_hat = MatrixXd::Zero(M, 3);
 
@@ -765,7 +761,7 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
     MatrixXd R = MatrixXd::Identity(3, 3);
     MatrixXd t = MatrixXd::Zero(3, 1);
     
-    // initialize G
+    // ===== initialize G Euclidean =====
     MatrixXd diff_yy = MatrixXd::Zero(M, M);
     MatrixXd diff_yy_sqrt = MatrixXd::Zero(M, M);
     for (int i = 0; i < M; i ++) {
@@ -774,27 +770,12 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
             diff_yy_sqrt(i, j) = (Y.row(i) - Y.row(j)).norm();
         }
     }
-    MatrixXd G_euclidean = (-diff_yy / (2 * beta * beta)).array().exp();
-
-    Eigen::EigenSolver<MatrixXd> solver;
-    solver.compute(G_euclidean, true);
-    std::cout << "=== eigenvalues ===" << std::endl;
-    std::cout << solver.eigenvalues() << std::endl;
-    std::cout << "=== eigenvectors ===" << std::endl;
-    std::cout << solver.eigenvectors() << std::endl;
-
-    // Initialize sigma2
-    MatrixXd diff_xy = MatrixXd::Zero(M, N);
-    for (int i = 0; i < M; i ++) {
-        for (int j = 0; j < N; j ++) {
-            diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
-        }
-    }
-    if (!use_prev_sigma2 || sigma2 == 0) {
-        sigma2 = gamma * diff_xy.sum() / static_cast<double>(3 * M * N);
-    }
+    MatrixXd G_euclidean;
+    // G_euclidean = (-diff_yy / (2 * beta * beta)).array().exp();
+    // G_euclidean = 1 / (diff_yy.array() + pow(beta, 2)).sqrt();
+    G_euclidean = 1 - diff_yy.array() / (diff_yy.array() + pow(beta, 2));
     
-    // ===== geodesic distance =====
+    // ===== initialize G geodesic =====
     MatrixXd converted_node_dis = MatrixXd::Zero(M, M); // this is a M*M matrix in place of diff_sqrt
     MatrixXd converted_node_dis_sq = MatrixXd::Zero(M, M);
     std::vector<double> converted_node_coord = {0.0};   // this is not squared
@@ -810,10 +791,62 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
             converted_node_dis(i, j) = abs(converted_node_coord[i] - converted_node_coord[j]);
         }
     }
-    MatrixXd G_geodesic = (-converted_node_dis_sq / (2 * beta * beta)).array().exp();
-    // MatrixXd G = 0.1 * G_euclidean + 0.9 * G_geodesic;
+    MatrixXd G_geodesic;
+    G_geodesic = (-converted_node_dis_sq / (2 * beta * beta)).array().exp();
+    // G_geodesic = 1 / (converted_node_dis_sq.array() + pow(beta, 2)).sqrt();
+    // G_geodesic = 1 - converted_node_dis_sq.array() / (converted_node_dis_sq.array() + pow(beta, 2));
+    // MatrixXd G_orig = G_geodesic.replicate(1, 1);
+    MatrixXd G_orig = (-converted_node_dis / (2 * beta * beta)).array().exp();
+    // MatrixXd G_orig = 0.00001 * (-converted_node_dis / (2 * beta * beta)).array().exp() + 0.99999 * G_geodesic.array();
+    // MatrixXd G_orig = 27 * 1/(72 * pow(beta, 3)) * (-sqrt(3)*converted_node_dis/beta).array().exp() * (sqrt(3)*beta*beta + 3*beta*converted_node_dis.array() + sqrt(3)*converted_node_dis_sq.array());
+    
+    // ===== G approximation =====
+    Eigen::EigenSolver<MatrixXd> solver;
+    solver.compute(G_orig, true);
+    // std::cout << "=== eigenvalues ===" << std::endl;
+    // std::cout << solver.eigenvalues() << std::endl;
+
+    int positive_count = 0;
+    std::vector<MatrixXcd> collection_of_positive_eigenvalues = {};
+    std::vector<MatrixXcd> collection_of_positive_eigenvectors = {};
+    for (int i = 0; i < M; i ++) {
+        if (solver.eigenvalues().real()(i, 0) > 0) {
+            positive_count += 1;
+            collection_of_positive_eigenvalues.push_back(solver.eigenvalues().row(i));
+            collection_of_positive_eigenvectors.push_back(solver.eigenvectors().col(i));
+        }
+    }
+
+    MatrixXcd positive_eig_vectors = MatrixXcd::Zero(M, positive_count);
+    MatrixXcd positive_eig_values = MatrixXcd::Zero(positive_count, 1);
+    for (int i = 0; i < positive_count; i ++) {
+        positive_eig_vectors.col(i) = collection_of_positive_eigenvectors[i];
+        positive_eig_values.row(i) = collection_of_positive_eigenvalues[i];
+    }
+    MatrixXcd G_hat = positive_eig_vectors * positive_eig_values.asDiagonal() * positive_eig_vectors.transpose();
+    MatrixXd G = G_hat.real();
+    // MatrixXd G = G_geodesic.replicate(1, 1);
+
+    // std::cout << "===== original G =====" << std::endl;
+    // std::cout << G_orig << std::endl;
+    // std::cout << "===== approximated G =====" << std::endl;
+    // std::cout << G << std::endl;
+    // std::cout << "===== difference =====" << std::endl;
+    // std::cout << G - G_orig << std::endl;
+
     // MatrixXd G = 1/(2*beta * 2*beta) * (-sqrt(2)*converted_node_dis/beta).array().exp() * (sqrt(2)*converted_node_dis.array() + beta);
-    MatrixXd G = 0.00000001 * (-converted_node_dis / (2 * beta * beta)).array().exp() + 0.99999999 * G_geodesic.array();
+    // MatrixXd G = 0.00000001 * (-converted_node_dis / (2 * beta * beta)).array().exp() + 0.99999999 * G_geodesic.array();
+
+    // Initialize sigma2
+    MatrixXd diff_xy = MatrixXd::Zero(M, N);
+    for (int i = 0; i < M; i ++) {
+        for (int j = 0; j < N; j ++) {
+            diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
+        }
+    }
+    if (!use_prev_sigma2 || sigma2 == 0) {
+        sigma2 = gamma * diff_xy.sum() / static_cast<double>(3 * M * N);
+    }
 
     // ===== log time and initial values =====
     std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
@@ -833,7 +866,7 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         diff_xy = MatrixXd::Zero(M, N);
         for (int i = 0; i < M; i ++) {
             for (int j = 0; j < N; j ++) {
-                diff_xy(i, j) = (Y_hat.row(i) - X.row(j)).squaredNorm();
+                diff_xy(i, j) = (Y.row(i) - X.row(j)).squaredNorm();
             }
         }
         MatrixXd phi_mn_bracket_1 = pow(2.0*M_PI*sigma2, -3.0/2.0) * (1.0-omega) * (-0.5 * diff_xy / sigma2).array().exp();  // this is M by N
@@ -845,7 +878,10 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         MatrixXd P = phi_mn_bracket_1.cwiseProduct(alpha_m_bracket);
         double c = omega / N;
         P = P.array().rowwise() / (P.colwise().sum().array() + c);
-        // P = P.unaryExpr([](double v) { return std::isfinite(v)? v : 0.0; });
+        P = P.unaryExpr([](double v) { return std::isfinite(v)? v : 0.0; });
+
+        std::cout << "===== P =====" << std::endl; 
+        std::cout << P.col(10).transpose() << std::endl;
 
         // MatrixXd P1 = P.rowwise().sum();
         // MatrixXd Pt1 = P.colwise().sum();
@@ -854,9 +890,9 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         double N_hat = P.sum();
 
         std::cout << "=== nu ===" << std::endl;
-        std::cout << nu << std::endl;
+        std::cout << nu.transpose() << std::endl;
         std::cout << "=== nu_corr ===" << std::endl;
-        std::cout << J.rowwise().sum() << std::endl;
+        std::cout << (J.rowwise().sum()).transpose() << std::endl;
 
         // compute X_hat
         MatrixXd nu_tilde = Eigen::kroneckerProduct(nu, MatrixXd::Constant(3, 1, 1.0));
@@ -991,6 +1027,9 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
 
         // ===== check convergence =====
         if (fabs(sigma2 - prev_sigma2) < tol && (Y_hat - prev_Y_hat).cwiseAbs().maxCoeff() < tol) {
+            std::cout << "=== Y_hat ===" << std::endl;
+            std::cout << Y_hat << std::endl;
+            
             ROS_INFO_STREAM(("Converged after " + std::to_string(it) + " iterations. Time taken: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count()) + " ms."));
             break;
         }
