@@ -144,6 +144,8 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
     eigen_values, eigen_vectors = np.linalg.eig(G)
     positive_indices = eigen_values > 0
     G_hat = eigen_vectors[:, positive_indices] @ np.diag(eigen_values[positive_indices]) @ eigen_vectors[:, positive_indices].T
+    print(eigen_values.shape, eigen_vectors.shape)
+    print(G_hat)
     G = G_hat.astype(np.float64)
 
     # initialize sigma2
@@ -917,11 +919,11 @@ def callback (rgb, pc):
                 if cur_pt[2] > 0.55:
                     guide_nodes.append(cur_pt)
 
-            for i in range(len(keypoints_2)):
-                blob_image_center.append((keypoints_2[i].pt[0],keypoints_2[i].pt[1]))
-                cur_pt = cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])]
-                if cur_pt[2] > 0.55:
-                    guide_nodes.append(cur_pt)
+            # for i in range(len(keypoints_2)):
+            #     blob_image_center.append((keypoints_2[i].pt[0],keypoints_2[i].pt[1]))
+            #     cur_pt = cur_pc[int(keypoints_2[i].pt[1]), int(keypoints_2[i].pt[0])]
+            #     if cur_pt[2] > 0.55:
+            #         guide_nodes.append(cur_pt)
 
             sigma2 = 1e-5
             init_nodes = np.array(sort_pts(np.array(guide_nodes)))
@@ -1041,7 +1043,7 @@ if __name__=='__main__':
 
     tracking_img_pub = rospy.Publisher ('/tracking_img', Image, queue_size=10)
     mask_img_pub = rospy.Publisher('/mask', Image, queue_size=10)
-    results_pub = rospy.Publisher ('/results', MarkerArray, queue_size=10)
+    results_pub = rospy.Publisher ('/results_marker', MarkerArray, queue_size=10)
 
     ts = message_filters.TimeSynchronizer([rgb_sub, pc_sub], 10)
     ts.registerCallback(callback)

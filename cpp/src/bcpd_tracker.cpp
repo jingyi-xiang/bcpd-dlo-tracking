@@ -774,7 +774,14 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
             diff_yy_sqrt(i, j) = (Y.row(i) - Y.row(j)).norm();
         }
     }
-    MatrixXd G = (-diff_yy / (2 * beta * beta)).array().exp();
+    MatrixXd G_euclidean = (-diff_yy / (2 * beta * beta)).array().exp();
+
+    Eigen::EigenSolver<MatrixXd> solver;
+    solver.compute(G_euclidean, true);
+    std::cout << "=== eigenvalues ===" << std::endl;
+    std::cout << solver.eigenvalues() << std::endl;
+    std::cout << "=== eigenvectors ===" << std::endl;
+    std::cout << solver.eigenvectors() << std::endl;
 
     // Initialize sigma2
     MatrixXd diff_xy = MatrixXd::Zero(M, N);
@@ -803,7 +810,10 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
             converted_node_dis(i, j) = abs(converted_node_coord[i] - converted_node_coord[j]);
         }
     }
-    G = (-converted_node_dis / (2 * beta * beta)).array().exp();
+    MatrixXd G_geodesic = (-converted_node_dis_sq / (2 * beta * beta)).array().exp();
+    // MatrixXd G = 0.1 * G_euclidean + 0.9 * G_geodesic;
+    // MatrixXd G = 1/(2*beta * 2*beta) * (-sqrt(2)*converted_node_dis/beta).array().exp() * (sqrt(2)*converted_node_dis.array() + beta);
+    MatrixXd G = 0.00000001 * (-converted_node_dis / (2 * beta * beta)).array().exp() + 0.99999999 * G_geodesic.array();
 
     // ===== log time and initial values =====
     std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
