@@ -24,7 +24,7 @@ from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
 from cpd_tracking_node import cpd_lle
-from utils import pt2pt_dis_sq, pt2pt_dis, register, sort_pts, ndarray2MarkerArray
+from utils import pt2pt_dis_sq, pt2pt_dis, register, sort_pts, ndarray2MarkerArray, traverse_euclidean
 
 def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, sigma2_0 = None, corr_priors = None, zeta = None):
     # ===== initialization =====
@@ -172,38 +172,38 @@ def bcpd (X, Y, beta, omega, lam, kappa, gamma, max_iter = 50, tol = 0.00001, si
         # ===== DO NOT update s, R, t lol =====
         sigma2_bar = np.sum(nu * big_sigma.diagonal()) / N_hat
 
-        # if corr_priors is None or len(corr_priors) == 0:
-        X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
-        u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
+        # # if corr_priors is None or len(corr_priors) == 0:
+        # X_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*X_hat, axis=0) / N_hat
+        # u_bar = np.sum(np.full((M, 3), nu.reshape(M, 1))*u_hat, axis=0) / N_hat
 
-        S_xu = np.zeros((3, 3))
-        S_uu = np.zeros((3, 3))
-        for m in range (0, M):
-            S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
-            S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+        # S_xu = np.zeros((3, 3))
+        # S_uu = np.zeros((3, 3))
+        # for m in range (0, M):
+        #     S_xu += nu[m] * (X_hat[m] - X_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
+        #     S_uu += nu[m] * (u_hat[m] - u_bar).reshape(3, 1) @ (u_hat[m] - u_bar).reshape(1, 3)
 
-        S_xu /= N_hat
-        S_uu /= N_hat
-        S_uu += sigma2_bar*np.eye(3)
-        U, _, Vt = np.linalg.svd(S_xu)
-        middle_mat = np.eye(3)
-        middle_mat[2, 2] = np.linalg.det(U @ Vt.T)
-        R = U @ middle_mat @ Vt
+        # S_xu /= N_hat
+        # S_uu /= N_hat
+        # S_uu += sigma2_bar*np.eye(3)
+        # U, _, Vt = np.linalg.svd(S_xu)
+        # middle_mat = np.eye(3)
+        # middle_mat[2, 2] = np.linalg.det(U @ Vt.T)
+        # R = U @ middle_mat @ Vt
 
-        s = np.trace(R @ S_xu) / np.trace(S_uu)
-        t = X_bar - s*R @ u_bar
+        # s = np.trace(R @ S_xu) / np.trace(S_uu)
+        # t = X_bar - s*R @ u_bar
 
-        T_hat = np.eye(4)
-        T_hat[0:3, 0:3] = s*R
-        T_hat[0:3, 3] = t
-        Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
+        # T_hat = np.eye(4)
+        # T_hat[0:3, 0:3] = s*R
+        # T_hat[0:3, 3] = t
+        # Y_hat = (T_hat @ np.hstack((Y + v_hat, np.ones((M, 1)))).T)[0:3, :].T
 
-        t = t.reshape((3, 1))
+        # t = t.reshape((3, 1))
 
-        # s = 1
-        # R = np.eye(3)
-        # t = np.zeros((3, 1))
-        # Y_hat = u_hat.copy()
+        s = 1
+        R = np.eye(3)
+        t = np.zeros((3, 1))
+        Y_hat = u_hat.copy()
 
         nu_prime_tilde = np.kron(nu_prime, np.ones(3))
         sigma2 = 1/(N_hat*3) * (X_flat.reshape(1, N*3) @ np.diag(nu_prime_tilde) @ X_flat.reshape(N*3, 1) - 2*X_flat.reshape(1, N*3) @ P_tilde.T @ Y_hat.flatten() + (Y_hat.flatten()).reshape(1, M*3) @ np.diag(nu_tilde) @ (Y_hat.flatten())) + s**2 * sigma2_bar
@@ -244,6 +244,7 @@ sigma2 = 0
 guide_nodes = []
 geodesic_coord = []
 total_len = 0.0
+sigma2_gn = 3e-5
 def callback (rgb, pc):
     global initialized
     global init_nodes
@@ -254,6 +255,7 @@ def callback (rgb, pc):
     global guide_nodes
     global geodesic_coord
     global total_len
+    global sigma2_gn
 
     # store header
     head =  std_msgs.msg.Header()
@@ -321,8 +323,8 @@ def callback (rgb, pc):
     if not use_marker_rope:
         filtered_pc = filtered_pc[filtered_pc[:, 0] > -0.2]
     else:
-        filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.58]
-        # filtered_pc = filtered_pc[(filtered_pc[:, 2] > 0.58) & (filtered_pc[:, 0] > -0.15) & (filtered_pc[:, 1] > -0.15)]
+        # filtered_pc = filtered_pc[filtered_pc[:, 2] > 0.58]
+        filtered_pc = filtered_pc[(filtered_pc[:, 2] > 0.58) & (filtered_pc[:, 0] > -0.15) & (filtered_pc[:, 1] > -0.15)]
         # filtered_pc = filtered_pc[~(((filtered_pc[:, 0] < 0.0) & (filtered_pc[:, 1] < 0.05)) | (filtered_pc[:, 2] < 0.58) | (filtered_pc[:, 0] < -0.2) | ((filtered_pc[:, 0] < 0.1) & (filtered_pc[:, 1] < -0.05)))]
     # print('filtered pc shape = ', np.shape(filtered_pc))
 
@@ -419,6 +421,17 @@ def callback (rgb, pc):
         # bmask_transformed = bmask_transformed / np.amax(bmask_transformed)
         vis = bmask_transformed[uvs_t]
 
+        # get visible node indices
+        visible_nodes = np.arange(0, len(nodes))[vis < mask_dis_threshold]
+        guide_nodes, sigma2_gn = cpd_lle(X=filtered_pc, Y_0=nodes[visible_nodes], beta=1, alpha=1, gamma=5, mu=0.05, max_iter=30, tol=0.00001, include_lle=True, use_geodesic=True, use_prev_sigma2=True, sigma2_0=sigma2_gn)
+
+        if visible_nodes[0] == 0:
+            print("tail occluded")
+            corr_priors = traverse_euclidean(geodesic_coord, guide_nodes, visible_nodes, 0)
+        else:
+            print("other scenarios")
+            corr_priors = traverse_euclidean(geodesic_coord, guide_nodes, visible_nodes, 1)
+
         # ===== Parameters =====
         # X \in R^N  -- target point set
         # Y \in R^M  -- source point set 
@@ -426,7 +439,7 @@ def callback (rgb, pc):
         # kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         # gamma      -- the scale factor of sigma2_0
         # beta       -- controls the influence of motion coherence
-        nodes, sigma2, _, _, _, _ = bcpd(X=filtered_pc, Y=nodes, beta=200, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=None, zeta=1e-3)
+        nodes, sigma2, _, _, _, _ = bcpd(X=filtered_pc, Y=nodes, beta=200, omega=0.0, lam=1, kappa=1e16, gamma=1, max_iter=50, tol=0.0001, sigma2_0=sigma2, corr_priors=corr_priors, zeta=1e-3)
         init_nodes = nodes.copy()
 
         # project and pub tracking image

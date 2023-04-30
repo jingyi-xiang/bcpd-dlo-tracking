@@ -145,6 +145,190 @@ def sort_pts(Y_0):
 
     return np.array(Y_0_sorted)
 
+
+def isBetween(x, a, b):
+    #check if x is between the segment composed by point a and point b
+    if (a <= x <= b or a >= x >= b):
+        return True
+    else:
+        return False
+
+
+def line_sphere_intersection(point_A, point_B, sphere_center, radius):
+    point_A = (point_A[0], point_A[1], point_A[2])
+    point_B = (point_B[0], point_B[1], point_B[2])
+    sphere_center = (sphere_center[0], sphere_center[1], sphere_center[2])
+
+    # line has two points(pointA and pointB)
+    # sphere_center(x, y, z)
+    # radius is the sphere's radius
+    a = (point_B[0] - point_A[0])**2 + (point_B[1] - point_A[1])**2 + (point_B[2] - point_A[2])**2
+
+    b = 2* ((point_B[0] - point_A[0])*(point_A[0] - sphere_center[0]) + 
+            (point_B[1] - point_A[1])*(point_A[1] - sphere_center[1]) + 
+            (point_B[2] - point_A[2])*(point_A[2] - sphere_center[2]))
+    c = (point_A[0] - sphere_center[0])**2 + (point_A[1] - sphere_center[1])**2 + (point_A[2] - sphere_center[2])**2 - radius**2
+
+    delta = b**2 - (4*a*c)
+
+    d1 = (-b+np.sqrt(delta))/(2*a)
+    d2 = (-b-np.sqrt(delta))/(2*a)
+    
+    if (delta < 0) :
+        # print("delta < 0")
+        return []
+    elif (delta > 0):
+        # print("delta > 0")
+        # one point
+        x1 = point_A[0] + d1*(point_B[0] - point_A[0])
+        y1 = point_A[1] + d1*(point_B[1] - point_A[1])
+        z1 = point_A[2] + d1*(point_B[2] - point_A[2])
+        # the other one
+        x2 = point_A[0] + d2*(point_B[0] - point_A[0])
+        y2 = point_A[1] + d2*(point_B[1] - point_A[1])
+        z2 = point_A[2] + d2*(point_B[2] - point_A[2])
+
+        result = []
+        if isBetween((x1, y1, z1), point_A, point_B):
+            result.append((x1, y1, z1))
+        if isBetween((x2, y2, z2), point_A, point_B):
+            result.append((x2, y2, z2))
+        if len(result) == 0:
+            return []
+        else:
+            return result
+    else:
+        # print("delta = 0")
+        d1 = -b / (2*a)
+        # one point
+        x1 = point_A[0] + d1*(point_B[0] - point_A[0])
+        y1 = point_A[1] + d1*(point_B[1] - point_A[1])
+        z1 = point_A[2] + d1*(point_B[2] - point_A[2])
+        if isBetween((x1, y1, z1), point_A, point_B):
+            return [(x1, y1, z1)]
+        else:
+            return []
+        
+def traverse_euclidean (geodesic_coord, guide_nodes, visible_nodes, alignment, alignment_node_idx=0):
+    node_pairs = []
+
+    # extreme cases: only one guide node available
+    # since this function will only be called when at least one of head or tail is visible, 
+    # the only node will be head or tail
+    if len(guide_nodes) == 1:
+        node_pairs.append([visible_nodes[0], guide_nodes[0, 0], guide_nodes[0, 1], guide_nodes[0, 2]])
+        return np.array(node_pairs)
+
+    if alignment == 0:
+        # push back the first pair
+        node_pairs.append([visible_nodes[0], guide_nodes[0, 0], guide_nodes[0, 1], guide_nodes[0, 2]])
+
+        consecutive_visible_nodes = []
+        for i in range (0, len(visible_nodes)):
+            if i == visible_nodes[i]:
+                consecutive_visible_nodes.append(i)
+            else:
+                break
+        
+        last_found_index = 0
+        seg_dist_it = 0
+        cur_center = guide_nodes[0]
+
+        # basically pure pursuit
+        while (last_found_index+1 <= len(consecutive_visible_nodes)-1) and (seg_dist_it+1 <= len(geodesic_coord)-1):
+            look_ahead_dist = np.abs(geodesic_coord[seg_dist_it+1] - geodesic_coord[seg_dist_it])
+            found_intersection = False
+            intersection = []
+
+            for i in range (last_found_index, len(consecutive_visible_nodes)-3):
+                intersections = line_sphere_intersection(guide_nodes[i], guide_nodes[i+1], cur_center, look_ahead_dist)
+                intersections = np.array(intersections)
+
+                #  if no intersection found
+                if len(intersections) == 0:
+                    continue
+                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i+1] > pt2pt_dis(cur_center, guide_nodes[i+1]))):
+                    continue
+                else:
+                    found_intersection = True
+                    last_found_index = i
+
+                    if len(intersections) == 2:
+                        if pt2pt_dis(intersections[0], guide_nodes[i+1]) <= pt2pt_dis(intersections[1], guide_nodes[i+1]):
+                            # the first solution is closer
+                            intersection = intersections[0].copy()
+                            cur_center = intersections[0].copy()
+                        else:
+                            # the second one is closer
+                            intersection = intersections[1].copy()
+                            cur_center = intersections[1].copy()
+                    else:
+                        intersection = intersections[0].copy()
+                        cur_center = intersections[0].copy()
+                    break
+            
+            if not found_intersection:
+                break
+            else:
+                node_pairs.append([seg_dist_it+1, intersection[0], intersection[1], intersection[2]])
+                seg_dist_it += 1
+
+    elif alignment == 1:
+        # push back the first pair
+        node_pairs.append([visible_nodes[-1], guide_nodes[-1, 0], guide_nodes[-1, 1], guide_nodes[-1, 2]])
+
+        consecutive_visible_nodes = []
+        for i in range (1, len(visible_nodes)+1):
+            if visible_nodes[len(visible_nodes)-i] == len(geodesic_coord)-i:
+                consecutive_visible_nodes.append(len(geodesic_coord)-i)
+            else:
+                break
+        
+        last_found_index = len(guide_nodes) - 1
+        seg_dist_it = len(geodesic_coord) - 1
+        cur_center = guide_nodes[-1]
+
+        # basically pure pursuit
+        while (last_found_index-1 >= len(guide_nodes) - len(consecutive_visible_nodes)) and (seg_dist_it-1 >= 0):
+            look_ahead_dist = np.abs(geodesic_coord[seg_dist_it] - geodesic_coord[seg_dist_it-1])
+            found_intersection = False
+            intersection = []
+
+            for i in range (last_found_index, len(guide_nodes) - len(consecutive_visible_nodes), -1):
+                intersections = line_sphere_intersection(guide_nodes[i], guide_nodes[i-1], cur_center, look_ahead_dist)
+                intersections = np.array(intersections)
+
+                #  if no intersection found
+                if len(intersections) == 0:
+                    continue
+                elif (len(intersections) == 1) and (pt2pt_dis(intersections[0], guide_nodes[i-1] > pt2pt_dis(cur_center, guide_nodes[i-1]))):
+                    continue
+                else:
+                    found_intersection = True
+                    last_found_index = i
+
+                    if len(intersections) == 2:
+                        if pt2pt_dis(intersections[0], guide_nodes[i-1]) <= pt2pt_dis(intersections[1], guide_nodes[i-1]):
+                            # the first solution is closer
+                            intersection = intersections[0].copy()
+                            cur_center = intersections[0].copy()
+                        else:
+                            # the second one is closer
+                            intersection = intersections[1].copy()
+                            cur_center = intersections[1].copy()
+                    else:
+                        intersection = intersections[0].copy()
+                        cur_center = intersections[0].copy()
+                    break
+            
+            if not found_intersection:
+                break
+            else:
+                node_pairs.append([seg_dist_it-1, intersection[0], intersection[1], intersection[2]])
+                seg_dist_it -= 1
+    
+    return np.array(node_pairs)
+
 # original post: https://stackoverflow.com/a/59204638
 def rotation_matrix_from_vectors(vec1, vec2):
     """ Find the rotation matrix that aligns vec1 to vec2
