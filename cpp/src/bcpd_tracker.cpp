@@ -13,7 +13,9 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes)
     // default initialize
     Y_ = MatrixXd::Zero(num_of_nodes, 3);
     sigma2_ = 0.0;
-    beta_ = 0.1;
+    sigma2_gn_ = 1e-5;
+    beta_1_ = 1;
+    beta_2_ = 1;
     omega_ = 0.05;
     lambda_ = 10;
     kappa_ = 1e16;
@@ -25,7 +27,8 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes)
 }
 
 bcpd_tracker::bcpd_tracker(int num_of_nodes,
-                           double beta,
+                           double beta_1,
+                           double beta_2,
                            double lambda,
                            double omega,
                            double kappa,
@@ -37,7 +40,9 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes,
 {
     Y_ = MatrixXd::Zero(num_of_nodes, 3);
     sigma2_ = 0.0;
-    beta_ = beta;
+    sigma2_gn_ = 1e-5;
+    beta_1_ = beta_1;
+    beta_2_ = beta_2;
     omega_ = omega;
     lambda_ = lambda;
     kappa_ = kappa;
@@ -56,12 +61,20 @@ MatrixXd bcpd_tracker::get_tracking_result () {
     return Y_;
 }
 
-MatrixXd bcpd_tracker::get_guide_nodes () {
-    return guide_nodes_;
+MatrixXd bcpd_tracker::get_guide_nodes_1 () {
+    return guide_nodes_1_;
 }
 
-std::vector<MatrixXd> bcpd_tracker::get_correspondence_pairs () {
-    return correspondence_priors_;
+std::vector<MatrixXd> bcpd_tracker::get_correspondence_pairs_1 () {
+    return correspondence_priors_1_;
+}
+
+MatrixXd bcpd_tracker::get_guide_nodes_2 () {
+    return guide_nodes_2_;
+}
+
+std::vector<MatrixXd> bcpd_tracker::get_correspondence_pairs_2 () {
+    return correspondence_priors_2_;
 }
 
 void bcpd_tracker::initialize_nodes (MatrixXd Y_init) {
@@ -175,7 +188,7 @@ void bcpd_tracker::cpd_lle (MatrixXd X,
         }
     }
 
-    MatrixXd G = (-diff_yy / (2 * beta * beta)).array().exp();
+    MatrixXd G = (-diff_yy_sqrt / (2 * beta * beta)).array().exp();
     MatrixXd Y_0 = Y.replicate(1, 1);
 
     // diff_xy should be a (M * N) matrix
@@ -707,19 +720,19 @@ std::vector<MatrixXd> bcpd_tracker::traverse_euclidean (std::vector<double> geod
     return node_pairs;
 }
 
-void bcpd_tracker::bcpd (MatrixXd X_orig,
-                         MatrixXd& Y_hat,
-                         double& sigma2,
-                         double beta,
-                         double lambda,
-                         double omega,
-                         double kappa,
-                         double gamma,
-                         int max_iter,
-                         double tol,
-                         bool use_prev_sigma2,
-                         std::vector<MatrixXd> correspondence_priors,
-                         double zeta)
+MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
+                             MatrixXd& Y_hat,
+                             double& sigma2,
+                             double beta,
+                             double lambda,
+                             double omega,
+                             double kappa,
+                             double gamma,
+                             int max_iter,
+                             double tol,
+                             bool use_prev_sigma2,
+                             std::vector<MatrixXd> correspondence_priors,
+                             double zeta)
 {
     // ===== initialization =====
     bool align = true;
@@ -760,6 +773,7 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
     double s = 1;
     MatrixXd R = MatrixXd::Identity(3, 3);
     MatrixXd t = MatrixXd::Zero(3, 1);
+    MatrixXd T_hat = MatrixXd::Identity(4, 4);
     
     // ===== initialize G Euclidean =====
     MatrixXd diff_yy = MatrixXd::Zero(M, M);
@@ -982,34 +996,39 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         // X_bar is 1 by 3
         double sigma2_bar = (nu.cwiseProduct(big_sigma.diagonal())).sum() / N_hat;
 
-        MatrixXd S_xu = MatrixXd::Zero(3, 3);
-        MatrixXd S_uu = MatrixXd::Zero(3, 3);
-        for (int m = 0; m < M; m ++) {
-            MatrixXd X_diff = X_hat.row(m) - X_bar;
-            MatrixXd u_diff = u_hat.row(m) - u_bar;
-            X_diff.resize(3, 1);
-            u_diff.resize(1, 3);
-            S_xu += nu(m, 0) * (X_diff * u_diff);
-            S_uu += nu(m, 0) * (u_diff.transpose() * u_diff);
+        if (!align) {
+            MatrixXd S_xu = MatrixXd::Zero(3, 3);
+            MatrixXd S_uu = MatrixXd::Zero(3, 3);
+            for (int m = 0; m < M; m ++) {
+                MatrixXd X_diff = X_hat.row(m) - X_bar;
+                MatrixXd u_diff = u_hat.row(m) - u_bar;
+                X_diff.resize(3, 1);
+                u_diff.resize(1, 3);
+                S_xu += nu(m, 0) * (X_diff * u_diff);
+                S_uu += nu(m, 0) * (u_diff.transpose() * u_diff);
+            }
+            S_xu /= N_hat;
+            S_uu /= N_hat;
+            S_uu += sigma2_bar * MatrixXd::Identity(3, 3);
+            Eigen::JacobiSVD<Eigen::MatrixXd> svd(S_xu, Eigen::ComputeFullU | Eigen::ComputeFullV);
+            MatrixXd U = svd.matrixU();
+            MatrixXd S = svd.singularValues();
+            MatrixXd V = svd.matrixV();
+            MatrixXd Vt = V.transpose();
+            MatrixXd middle_mat = MatrixXd::Identity(3, 3);
+            middle_mat(2, 2) = (U * Vt).determinant();
+            R = U * middle_mat * Vt;
+
+            s = (R * S_xu).trace() / S_uu.trace();
+            t = X_bar.transpose() - s*R*u_bar.transpose();
+
+            T_hat = MatrixXd::Identity(4, 4);
+            T_hat.block<3, 3>(0, 0) = s*R;
+            T_hat.block<3, 1>(0, 3) = t;
         }
-        S_xu /= N_hat;
-        S_uu /= N_hat;
-        S_uu += sigma2_bar * MatrixXd::Identity(3, 3);
-        Eigen::JacobiSVD<Eigen::MatrixXd> svd(S_xu, Eigen::ComputeFullU | Eigen::ComputeFullV);
-        MatrixXd U = svd.matrixU();
-        MatrixXd S = svd.singularValues();
-        MatrixXd V = svd.matrixV();
-        MatrixXd Vt = V.transpose();
-        MatrixXd middle_mat = MatrixXd::Identity(3, 3);
-        middle_mat(2, 2) = (U * Vt).determinant();
-        R = U * middle_mat * Vt;
-
-        s = (R * S_xu).trace() / S_uu.trace();
-        t = X_bar.transpose() - s*R*u_bar.transpose();
-
-        MatrixXd T_hat = MatrixXd::Identity(4, 4);
-        T_hat.block<3, 3>(0, 0) = s*R;
-        T_hat.block<3, 1>(0, 3) = t;
+        else {
+            T_hat = MatrixXd::Identity(4, 4);
+        }
 
         MatrixXd Y_hat_h = u_hat.replicate(1, 1);
         Y_hat_h.conservativeResize(Y_hat.rows(), Y_hat.cols()+1);
@@ -1044,6 +1063,8 @@ void bcpd_tracker::bcpd (MatrixXd X_orig,
         prev_Y_hat = Y_hat.replicate(1, 1);
         prev_sigma2 = sigma2;
     }
+
+    return T_hat;
 }
 
 void bcpd_tracker::tracking_step (MatrixXd X_orig,
@@ -1055,7 +1076,8 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     std::vector<int> occluded_nodes = {};
     std::vector<int> visible_nodes = {};
     std::vector<MatrixXd> valid_nodes_vec = {};
-    correspondence_priors_ = {};
+    correspondence_priors_1_ = {};
+    correspondence_priors_2_ = {};
     int state = 0;
 
     // project Y onto the original image to determine occluded nodes
@@ -1083,20 +1105,22 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
 
     // copy valid guide nodes vec to guide nodes
     // not using topRows() because it caused weird bugs
-    guide_nodes_ = MatrixXd::Zero(valid_nodes_vec.size(), 3);
+    guide_nodes_1_ = MatrixXd::Zero(valid_nodes_vec.size(), 3);
     if (occluded_nodes.size() != 0) {
         for (int i = 0; i < valid_nodes_vec.size(); i ++) {
-            guide_nodes_.row(i) = valid_nodes_vec[i];
+            guide_nodes_1_.row(i) = valid_nodes_vec[i];
+            // guide_nodes_2_.row(i) = valid_nodes_vec[i];
         }
     }
     else {
-        guide_nodes_ = Y_.replicate(1, 1);
+        guide_nodes_1_ = Y_.replicate(1, 1);
+        // guide_nodes_2_ = Y_.replicate(1, 1);
     }
 
     // determine DLO state: heading visible, tail visible, both visible, or both occluded
     // priors_vec should be the final output; priors_vec[i] = {index, x, y, z}
-    double sigma2_pre_proc = sigma2_;
-    cpd_lle(X_orig, guide_nodes_, sigma2_pre_proc, 1, 1, 10, 0.1, 50, 0.00001, true, true, true);
+    double sigma2_pre_proc_1 = sigma2_;
+    cpd_lle(X_orig, guide_nodes_1_, sigma2_pre_proc_1, 30, 1, 10, 0.1, 50, 0.00001, true, true, true);
 
     if (occluded_nodes.size() == 0) {
         ROS_INFO("All nodes visible");
@@ -1121,28 +1145,28 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
         //     }
         // }
 
-        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
+        correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
     }
     else if (visible_nodes[0] == 0 && visible_nodes[visible_nodes.size()-1] == Y_.rows()-1) {
         ROS_INFO("Mid-section occluded");
 
-        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
-        std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 1);
+        correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
+        std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 1);
         // priors_vec = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
         // std::vector<MatrixXd> priors_vec_2 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
 
-        correspondence_priors_.insert(correspondence_priors_.end(), priors_vec_2.begin(), priors_vec_2.end());
+        correspondence_priors_1_.insert(correspondence_priors_1_.end(), priors_vec_2.begin(), priors_vec_2.end());
     }
     else if (visible_nodes[0] == 0) {
         ROS_INFO("Tail occluded");
 
-        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
+        correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
         // priors_vec = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
     }
     else if (visible_nodes[visible_nodes.size()-1] == Y_.rows()-1) {
         ROS_INFO("Head occluded");
 
-        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 1);
+        correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 1);
         // priors_vec = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
     }
     else {
@@ -1152,22 +1176,80 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
         int alignment_node_idx = -1;
         double moved_dist = 999999;
         for (int i = 0; i < visible_nodes.size(); i ++) {
-            if (pt2pt_dis(Y_.row(visible_nodes[i]), guide_nodes_.row(i)) < moved_dist) {
-                moved_dist = pt2pt_dis(Y_.row(visible_nodes[i]), guide_nodes_.row(i));
+            if (pt2pt_dis(Y_.row(visible_nodes[i]), guide_nodes_1_.row(i)) < moved_dist) {
+                moved_dist = pt2pt_dis(Y_.row(visible_nodes[i]), guide_nodes_1_.row(i));
                 alignment_node_idx = i;
             }
         }
 
         // std::cout << "alignment node index: " << alignment_node_idx << std::endl;
-        correspondence_priors_ = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 2, alignment_node_idx);
+        correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 2, alignment_node_idx);
     }
+
+    MatrixXd corr_priors_1_pc = MatrixXd::Zero(correspondence_priors_1_.size(), 3);
 
     std::cout << "finished traversal" << std::endl;
-    for (int i = 0; i < correspondence_priors_.size(); i ++) {
-        std::cout << correspondence_priors_[i] << std::endl;
+    guide_nodes_2_ = MatrixXd::Zero(correspondence_priors_1_.size(), 3);
+    for (int i = 0; i < correspondence_priors_1_.size(); i ++) {
+        corr_priors_1_pc(i, 0) = correspondence_priors_1_[i](0, 1);
+        corr_priors_1_pc(i, 1) = correspondence_priors_1_[i](0, 2);
+        corr_priors_1_pc(i, 2) = correspondence_priors_1_[i](0, 3);
+        guide_nodes_2_.row(i) = Y_.row(correspondence_priors_1_[i](0, 0));
     }
 
-    // include_lle == false because we have no space to discuss it in the paper
-    // ecpd_lle (X_orig, Y_, sigma2_, beta_, lambda_, lle_weight_, mu_, max_iter_, tol_, include_lle_, use_geodesic_, use_prev_sigma2_, true, correspondence_priors_, alpha_, kernel_, occluded_nodes, k_vis_, bmask_transformed_normalized, mat_max);
-    bcpd(X_orig, Y_, sigma2_, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, {}, zeta_);
+
+    double sigma2_pre_proc_2 = sigma2_;
+
+    // registration 1 - get sRt
+    // MatrixXd T = bcpd(X_orig, guide_nodes_2_, sigma2_pre_proc_2, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
+    MatrixXd T = bcpd(corr_priors_1_pc, guide_nodes_2_, sigma2_pre_proc_2, beta_1_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
+
+    // transform the original point cloud
+    MatrixXd X_transformed_h = X_orig.replicate(1, 1);
+    X_transformed_h.conservativeResize(X_orig.rows(), X_orig.cols()+1);
+    X_transformed_h.col(X_transformed_h.cols()-1) = MatrixXd::Ones(X_transformed_h.rows(), 1);
+    MatrixXd X_transformed = (T.inverse() * X_transformed_h.transpose()).transpose().leftCols(3);
+
+    // transform guide_nodes_2
+    MatrixXd gn_without_transform_h = guide_nodes_2_.replicate(1, 1);
+    gn_without_transform_h.conservativeResize(guide_nodes_2_.rows(), guide_nodes_2_.cols()+1);
+    gn_without_transform_h.col(gn_without_transform_h.cols()-1) = MatrixXd::Ones(gn_without_transform_h.rows(), 1);
+    MatrixXd gn_without_transform = (T.inverse() * gn_without_transform_h.transpose()).transpose().leftCols(3);
+
+    // compute corr_priors_2
+    for (int i = 0; i < correspondence_priors_1_.size(); i ++) {
+        MatrixXd temp = MatrixXd::Zero(1, 4);
+        temp(0, 0) = correspondence_priors_1_[i](0, 0);
+        temp(0, 1) = gn_without_transform(i, 0);
+        temp(0, 2) = gn_without_transform(i, 1);
+        temp(0, 3) = gn_without_transform(i, 2);
+        correspondence_priors_2_.push_back(temp);
+    }
+
+    // // transform guide_nodes_2
+    // MatrixXd gn_without_transform_h = corr_priors_1_pc.replicate(1, 1);
+    // gn_without_transform_h.conservativeResize(corr_priors_1_pc.rows(), corr_priors_1_pc.cols()+1);
+    // gn_without_transform_h.col(gn_without_transform_h.cols()-1) = MatrixXd::Ones(gn_without_transform_h.rows(), 1);
+    // MatrixXd gn_without_transform = (T.inverse() * gn_without_transform_h.transpose()).transpose().leftCols(3);
+
+    // // compute corr_priors_2
+    // for (int i = 0; i < correspondence_priors_1_.size(); i ++) {
+    //     MatrixXd temp = MatrixXd::Zero(1, 4);
+    //     temp(0, 0) = correspondence_priors_1_[i](0, 0);
+    //     temp(0, 1) = gn_without_transform(i, 0);
+    //     temp(0, 2) = gn_without_transform(i, 1);
+    //     temp(0, 3) = gn_without_transform(i, 2);
+    //     correspondence_priors_2_.push_back(temp);
+    // }
+    // std::cout << "corr_prior_2 size = " << correspondence_priors_2_.size() << std::endl;
+
+    // registration 2 - get imputed velocity field
+    MatrixXd not_useful = bcpd(X_transformed, Y_, sigma2_, beta_2_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_2_, zeta_);
+
+    // transform Y_ to get the final result
+    MatrixXd Y_h = Y_.replicate(1, 1);
+    Y_h.conservativeResize(Y_.rows(), Y_.cols()+1);
+    Y_h.col(Y_h.cols()-1) = MatrixXd::Ones(Y_h.rows(), 1);
+    MatrixXd final_result = (T * Y_h.transpose()).transpose().leftCols(3);
+    Y_ = final_result.replicate(1, 1);
 }

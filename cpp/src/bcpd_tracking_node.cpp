@@ -26,7 +26,8 @@ bool visualize_dist = false;
 bool use_eval_rope;
 int bag_file;
 int num_of_nodes;
-double beta;
+double beta_1;
+double beta_2;
 double lambda;
 double omega;
 double kappa;
@@ -267,7 +268,7 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                 MatrixXd Y_0_sorted = sort_pts(Y_0);
                 Y = Y_0_sorted.replicate(1, 1);
                 
-                tracker = bcpd_tracker(Y_0_sorted.rows(), beta, lambda, omega, kappa, gam, zeta, max_iter, tol, use_prev_sigma2);
+                tracker = bcpd_tracker(Y_0_sorted.rows(), beta_1, beta_2, lambda, omega, kappa, gam, zeta, max_iter, tol, use_prev_sigma2);
 
                 sigma2 = 0.0;
 
@@ -493,6 +494,7 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
         pcl_conversions::moveFromPCL(cur_pc_downsampled, output);
 
         // publish the results as a marker array
+        guide_nodes = tracker.get_guide_nodes_1();
         visualization_msgs::MarkerArray results = MatrixXd2MarkerArray(Y, "camera_color_optical_frame", "node_results", {1.0, 150.0/255.0, 0.0, 0.75}, {0.0, 1.0, 0.0, 0.75});
         visualization_msgs::MarkerArray guide_nodes_results = MatrixXd2MarkerArray(guide_nodes, "camera_color_optical_frame", "guide_node_results", {0.0, 0.0, 0.0, 0.5}, {0.0, 0.0, 1.0, 0.5});
 
@@ -546,7 +548,8 @@ int main(int argc, char **argv) {
 
     // load parameters
     // tracker.bcpd(X, Y, sigma2, beta, lambda, omega, kappa, gam, max_iter, tol, use_prev_sigma2);
-    nh.getParam("/bcpd/beta", beta); 
+    nh.getParam("/bcpd/beta_1", beta_1); 
+    nh.getParam("/bcpd/beta_2", beta_2); 
     nh.getParam("/bcpd/lambda", lambda); 
     nh.getParam("/bcpd/omega", omega); 
     nh.getParam("/bcpd/kappa", kappa); 

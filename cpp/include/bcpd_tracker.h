@@ -60,7 +60,8 @@ class bcpd_tracker
         bcpd_tracker(int num_of_nodes);
         // fancy constructor
         bcpd_tracker(int num_of_nodes,
-                     double beta,
+                     double beta_1,
+                     double beta_2,
                      double lambda,
                      double omega,
                      double kappa,
@@ -76,8 +77,10 @@ class bcpd_tracker
         void initialize_geodesic_coord (std::vector<double> geodesic_coord);
         void set_sigma2 (double sigma2);
 
-        MatrixXd get_guide_nodes();
-        std::vector<MatrixXd> get_correspondence_pairs();
+        MatrixXd get_guide_nodes_1();
+        std::vector<MatrixXd> get_correspondence_pairs_1();
+        MatrixXd get_guide_nodes_2();
+        std::vector<MatrixXd> get_correspondence_pairs_2();
 
         // ===== Parameters =====
         // X \in R^N  -- target point set
@@ -86,19 +89,19 @@ class bcpd_tracker
         // omega      -- the outlier probability
         // kappa      -- the parameter of the Dirichlet distribution used as a prior distribution of alpha
         // gamma      -- the scale factor of sigma2_0
-        void bcpd (MatrixXd X_orig,
-                   MatrixXd& Y_hat,
-                   double& sigma2,
-                   double beta,
-                   double lambda,
-                   double omega,
-                   double kappa,
-                   double gamma,
-                   int max_iter = 50,
-                   double tol = 0.00001,
-                   bool use_prev_sigma2 = false,
-                   std::vector<MatrixXd> correspondence_priors = {},
-                   double zeta = 0);
+        MatrixXd bcpd (MatrixXd X_orig,
+                       MatrixXd& Y_hat,
+                       double& sigma2,
+                       double beta,
+                       double lambda,
+                       double omega,
+                       double kappa,
+                       double gamma,
+                       int max_iter = 50,
+                       double tol = 0.00001,
+                       bool use_prev_sigma2 = false,
+                       std::vector<MatrixXd> correspondence_priors = {},
+                       double zeta = 0);
 
         void cpd_lle (MatrixXd X,
                       MatrixXd& Y,
@@ -120,9 +123,12 @@ class bcpd_tracker
 
     private:
         MatrixXd Y_;
-        MatrixXd guide_nodes_;
+        MatrixXd guide_nodes_1_;
+        MatrixXd guide_nodes_2_;
         double sigma2_;
-        double beta_;
+        double sigma2_gn_;
+        double beta_1_;
+        double beta_2_;
         double lambda_;
         double omega_;
         double kappa_;
@@ -132,7 +138,8 @@ class bcpd_tracker
         double tol_;
         bool use_prev_sigma2_;
         std::vector<double> geodesic_coord_;
-        std::vector<MatrixXd> correspondence_priors_;
+        std::vector<MatrixXd> correspondence_priors_1_;
+        std::vector<MatrixXd> correspondence_priors_2_;
 
         std::vector<int> get_nearest_indices (int k, int M, int idx);
         MatrixXd calc_LLE_weights (int k, MatrixXd X);
