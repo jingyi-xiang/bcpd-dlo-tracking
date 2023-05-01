@@ -62,6 +62,7 @@ class bcpd_tracker
         bcpd_tracker(int num_of_nodes,
                      double beta_1,
                      double beta_2,
+                     double tao,
                      double lambda,
                      double omega,
                      double kappa,
@@ -93,6 +94,7 @@ class bcpd_tracker
                        MatrixXd& Y_hat,
                        double& sigma2,
                        double beta,
+                       double tao,
                        double lambda,
                        double omega,
                        double kappa,
@@ -129,6 +131,7 @@ class bcpd_tracker
         double sigma2_gn_;
         double beta_1_;
         double beta_2_;
+        double tao_;
         double lambda_;
         double omega_;
         double kappa_;

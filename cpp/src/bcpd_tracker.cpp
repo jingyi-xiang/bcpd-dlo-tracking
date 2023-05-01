@@ -16,6 +16,7 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes)
     sigma2_gn_ = 1e-5;
     beta_1_ = 1;
     beta_2_ = 1;
+    tao_ = 1;
     omega_ = 0.05;
     lambda_ = 10;
     kappa_ = 1e16;
@@ -29,6 +30,7 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes)
 bcpd_tracker::bcpd_tracker(int num_of_nodes,
                            double beta_1,
                            double beta_2,
+                           double tao,
                            double lambda,
                            double omega,
                            double kappa,
@@ -43,6 +45,7 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes,
     sigma2_gn_ = 1e-5;
     beta_1_ = beta_1;
     beta_2_ = beta_2;
+    tao_ = tao;
     omega_ = omega;
     lambda_ = lambda;
     kappa_ = kappa;
@@ -724,6 +727,7 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
                              MatrixXd& Y_hat,
                              double& sigma2,
                              double beta,
+                             double tao,
                              double lambda,
                              double omega,
                              double kappa,
@@ -810,36 +814,38 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
     // G_geodesic = 1 / (converted_node_dis_sq.array() + pow(beta, 2)).sqrt();
     // G_geodesic = 1 - converted_node_dis_sq.array() / (converted_node_dis_sq.array() + pow(beta, 2));
     // MatrixXd G_orig = G_geodesic.replicate(1, 1);
-    MatrixXd G_orig = (-converted_node_dis / (2 * beta * beta)).array().exp();
+    MatrixXd G_1 = (-converted_node_dis / (2 * beta * beta)).array().exp();
+    MatrixXd G_2 = 1/(2*beta * 2*beta) * (-sqrt(2)*converted_node_dis/beta).array().exp() * (sqrt(2)*converted_node_dis.array() + beta);
+    MatrixXd G = (1-tao)*G_1 + tao*G_2;
     // MatrixXd G_orig = 0.00001 * (-converted_node_dis / (2 * beta * beta)).array().exp() + 0.99999 * G_geodesic.array();
     // MatrixXd G_orig = 27 * 1/(72 * pow(beta, 3)) * (-sqrt(3)*converted_node_dis/beta).array().exp() * (sqrt(3)*beta*beta + 3*beta*converted_node_dis.array() + sqrt(3)*converted_node_dis_sq.array());
     
-    // ===== G approximation =====
-    Eigen::EigenSolver<MatrixXd> solver;
-    solver.compute(G_orig, true);
-    // std::cout << "=== eigenvalues ===" << std::endl;
-    // std::cout << solver.eigenvalues() << std::endl;
+    // // ===== G approximation =====
+    // Eigen::EigenSolver<MatrixXd> solver;
+    // solver.compute(G_orig, true);
+    // // std::cout << "=== eigenvalues ===" << std::endl;
+    // // std::cout << solver.eigenvalues() << std::endl;
 
-    int positive_count = 0;
-    std::vector<MatrixXcd> collection_of_positive_eigenvalues = {};
-    std::vector<MatrixXcd> collection_of_positive_eigenvectors = {};
-    for (int i = 0; i < M; i ++) {
-        if (solver.eigenvalues().real()(i, 0) > 0) {
-            positive_count += 1;
-            collection_of_positive_eigenvalues.push_back(solver.eigenvalues().row(i));
-            collection_of_positive_eigenvectors.push_back(solver.eigenvectors().col(i));
-        }
-    }
+    // int positive_count = 0;
+    // std::vector<MatrixXcd> collection_of_positive_eigenvalues = {};
+    // std::vector<MatrixXcd> collection_of_positive_eigenvectors = {};
+    // for (int i = 0; i < M; i ++) {
+    //     if (solver.eigenvalues().real()(i, 0) > 0) {
+    //         positive_count += 1;
+    //         collection_of_positive_eigenvalues.push_back(solver.eigenvalues().row(i));
+    //         collection_of_positive_eigenvectors.push_back(solver.eigenvectors().col(i));
+    //     }
+    // }
 
-    MatrixXcd positive_eig_vectors = MatrixXcd::Zero(M, positive_count);
-    MatrixXcd positive_eig_values = MatrixXcd::Zero(positive_count, 1);
-    for (int i = 0; i < positive_count; i ++) {
-        positive_eig_vectors.col(i) = collection_of_positive_eigenvectors[i];
-        positive_eig_values.row(i) = collection_of_positive_eigenvalues[i];
-    }
-    MatrixXcd G_hat = positive_eig_vectors * positive_eig_values.asDiagonal() * positive_eig_vectors.transpose();
-    // MatrixXd G = G_hat.real();
-    MatrixXd G = G_orig.replicate(1, 1);
+    // MatrixXcd positive_eig_vectors = MatrixXcd::Zero(M, positive_count);
+    // MatrixXcd positive_eig_values = MatrixXcd::Zero(positive_count, 1);
+    // for (int i = 0; i < positive_count; i ++) {
+    //     positive_eig_vectors.col(i) = collection_of_positive_eigenvectors[i];
+    //     positive_eig_values.row(i) = collection_of_positive_eigenvalues[i];
+    // }
+    // MatrixXcd G_hat = positive_eig_vectors * positive_eig_values.asDiagonal() * positive_eig_vectors.transpose();
+    // // MatrixXd G = G_hat.real();
+    // MatrixXd G = G_orig.replicate(1, 1);
 
     // std::cout << "===== original G =====" << std::endl;
     // std::cout << G_orig << std::endl;
@@ -1202,7 +1208,7 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
 
     // registration 1 - get sRt
     // MatrixXd T = bcpd(X_orig, guide_nodes_2_, sigma2_pre_proc_2, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
-    MatrixXd T = bcpd(corr_priors_1_pc, guide_nodes_2_, sigma2_pre_proc_2, beta_1_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
+    MatrixXd T = bcpd(corr_priors_1_pc, guide_nodes_2_, sigma2_pre_proc_2, beta_1_, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
 
     // transform the original point cloud
     MatrixXd X_transformed_h = X_orig.replicate(1, 1);
@@ -1244,7 +1250,7 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     // std::cout << "corr_prior_2 size = " << correspondence_priors_2_.size() << std::endl;
 
     // registration 2 - get imputed velocity field
-    MatrixXd not_useful = bcpd(X_transformed, Y_, sigma2_, beta_2_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_2_, zeta_);
+    MatrixXd not_useful = bcpd(X_transformed, Y_, sigma2_, beta_2_, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_2_, zeta_);
 
     // transform Y_ to get the final result
     MatrixXd Y_h = Y_.replicate(1, 1);

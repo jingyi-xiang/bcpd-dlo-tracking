@@ -28,6 +28,7 @@ int bag_file;
 int num_of_nodes;
 double beta_1;
 double beta_2;
+double tao;
 double lambda;
 double omega;
 double kappa;
@@ -268,7 +269,7 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                 MatrixXd Y_0_sorted = sort_pts(Y_0);
                 Y = Y_0_sorted.replicate(1, 1);
                 
-                tracker = bcpd_tracker(Y_0_sorted.rows(), beta_1, beta_2, lambda, omega, kappa, gam, zeta, max_iter, tol, use_prev_sigma2);
+                tracker = bcpd_tracker(Y_0_sorted.rows(), beta_1, beta_2, tao, lambda, omega, kappa, gam, zeta, max_iter, tol, use_prev_sigma2);
 
                 sigma2 = 0.0;
 
@@ -550,6 +551,7 @@ int main(int argc, char **argv) {
     // tracker.bcpd(X, Y, sigma2, beta, lambda, omega, kappa, gam, max_iter, tol, use_prev_sigma2);
     nh.getParam("/bcpd/beta_1", beta_1); 
     nh.getParam("/bcpd/beta_2", beta_2); 
+    nh.getParam("/bcpd/tao", tao); 
     nh.getParam("/bcpd/lambda", lambda); 
     nh.getParam("/bcpd/omega", omega); 
     nh.getParam("/bcpd/kappa", kappa); 
