@@ -1126,7 +1126,7 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     // determine DLO state: heading visible, tail visible, both visible, or both occluded
     // priors_vec should be the final output; priors_vec[i] = {index, x, y, z}
     double sigma2_pre_proc_1 = sigma2_;
-    cpd_lle(X_orig, guide_nodes_1_, sigma2_pre_proc_1, 30, 1, 10, 0.1, 50, 0.00001, true, true, true);
+    cpd_lle(X_orig, guide_nodes_1_, sigma2_pre_proc_1, 50, 1, 10, 0.1, 50, 0.00001, true, true, true);
 
     if (occluded_nodes.size() == 0) {
         ROS_INFO("All nodes visible");
@@ -1216,25 +1216,9 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     X_transformed_h.col(X_transformed_h.cols()-1) = MatrixXd::Ones(X_transformed_h.rows(), 1);
     MatrixXd X_transformed = (T.inverse() * X_transformed_h.transpose()).transpose().leftCols(3);
 
-    // transform guide_nodes_2
-    MatrixXd gn_without_transform_h = guide_nodes_2_.replicate(1, 1);
-    gn_without_transform_h.conservativeResize(guide_nodes_2_.rows(), guide_nodes_2_.cols()+1);
-    gn_without_transform_h.col(gn_without_transform_h.cols()-1) = MatrixXd::Ones(gn_without_transform_h.rows(), 1);
-    MatrixXd gn_without_transform = (T.inverse() * gn_without_transform_h.transpose()).transpose().leftCols(3);
-
-    // compute corr_priors_2
-    for (int i = 0; i < correspondence_priors_1_.size(); i ++) {
-        MatrixXd temp = MatrixXd::Zero(1, 4);
-        temp(0, 0) = correspondence_priors_1_[i](0, 0);
-        temp(0, 1) = gn_without_transform(i, 0);
-        temp(0, 2) = gn_without_transform(i, 1);
-        temp(0, 3) = gn_without_transform(i, 2);
-        correspondence_priors_2_.push_back(temp);
-    }
-
     // // transform guide_nodes_2
-    // MatrixXd gn_without_transform_h = corr_priors_1_pc.replicate(1, 1);
-    // gn_without_transform_h.conservativeResize(corr_priors_1_pc.rows(), corr_priors_1_pc.cols()+1);
+    // MatrixXd gn_without_transform_h = guide_nodes_2_.replicate(1, 1);
+    // gn_without_transform_h.conservativeResize(guide_nodes_2_.rows(), guide_nodes_2_.cols()+1);
     // gn_without_transform_h.col(gn_without_transform_h.cols()-1) = MatrixXd::Ones(gn_without_transform_h.rows(), 1);
     // MatrixXd gn_without_transform = (T.inverse() * gn_without_transform_h.transpose()).transpose().leftCols(3);
 
@@ -1247,6 +1231,22 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     //     temp(0, 3) = gn_without_transform(i, 2);
     //     correspondence_priors_2_.push_back(temp);
     // }
+
+    // transform guide_nodes_2
+    MatrixXd gn_without_transform_h = corr_priors_1_pc.replicate(1, 1);
+    gn_without_transform_h.conservativeResize(corr_priors_1_pc.rows(), corr_priors_1_pc.cols()+1);
+    gn_without_transform_h.col(gn_without_transform_h.cols()-1) = MatrixXd::Ones(gn_without_transform_h.rows(), 1);
+    MatrixXd gn_without_transform = (T.inverse() * gn_without_transform_h.transpose()).transpose().leftCols(3);
+
+    // compute corr_priors_2
+    for (int i = 0; i < correspondence_priors_1_.size(); i ++) {
+        MatrixXd temp = MatrixXd::Zero(1, 4);
+        temp(0, 0) = correspondence_priors_1_[i](0, 0);
+        temp(0, 1) = gn_without_transform(i, 0);
+        temp(0, 2) = gn_without_transform(i, 1);
+        temp(0, 3) = gn_without_transform(i, 2);
+        correspondence_priors_2_.push_back(temp);
+    }
     // std::cout << "corr_prior_2 size = " << correspondence_priors_2_.size() << std::endl;
 
     // registration 2 - get imputed velocity field

@@ -5,7 +5,7 @@
     <arg name="use_eval_rope" default="true" />
 
     <node name="bcpd" pkg="bcpd-dlo-tracking" type="bcpd" output="screen">
-        <param name="beta_1" value="12" />
+        <param name="beta_1" value="6" />
         <param name="beta_2" value="10" />
         <param name="lambda" value="8" />
         <param name="tao" value="0.995" />
@@ -24,7 +24,7 @@
         <param name="num_of_nodes" value="40" />
         <param name="downsample_leaf_size" value="0.005" />
 
-        <param name="double_nodes" value="false" />
+        <param name="double_nodes" value="true" />
     </node>
 
 </launch>
