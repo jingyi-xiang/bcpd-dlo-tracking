@@ -1122,33 +1122,35 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
 
     if (occluded_nodes.size() == 0) {
         ROS_INFO("All nodes visible");
+        state = 0;
 
-        // get priors vec
-        std::vector<MatrixXd> priors_vec_1 = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
-        std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 1);
-        // std::vector<MatrixXd> priors_vec_1 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
-        // std::vector<MatrixXd> priors_vec_2 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
+        // // get priors vec
+        // std::vector<MatrixXd> priors_vec_1 = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
+        // std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 1);
+        // // std::vector<MatrixXd> priors_vec_1 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
+        // // std::vector<MatrixXd> priors_vec_2 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
 
-        std::reverse(priors_vec_2.begin(), priors_vec_2.end());
+        // std::reverse(priors_vec_2.begin(), priors_vec_2.end());
 
-        // take average
-        correspondence_priors_1_ = {};
-        for (int i = 0; i < Y_.rows(); i ++) {
-            if (i < priors_vec_2[0](0, 0) && i < priors_vec_1.size()) {
-                correspondence_priors_1_.push_back(priors_vec_1[i]);
-            }
-            else if (i > priors_vec_1[priors_vec_1.size()-1](0, 0) && (i-(Y_.rows()-priors_vec_2.size())) < priors_vec_2.size()) {
-                correspondence_priors_1_.push_back(priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]);
-            }
-            else {
-                correspondence_priors_1_.push_back((priors_vec_1[i] + priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]) / 2.0);
-            }
-        }
+        // // take average
+        // correspondence_priors_1_ = {};
+        // for (int i = 0; i < Y_.rows(); i ++) {
+        //     if (i < priors_vec_2[0](0, 0) && i < priors_vec_1.size()) {
+        //         correspondence_priors_1_.push_back(priors_vec_1[i]);
+        //     }
+        //     else if (i > priors_vec_1[priors_vec_1.size()-1](0, 0) && (i-(Y_.rows()-priors_vec_2.size())) < priors_vec_2.size()) {
+        //         correspondence_priors_1_.push_back(priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]);
+        //     }
+        //     else {
+        //         correspondence_priors_1_.push_back((priors_vec_1[i] + priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]) / 2.0);
+        //     }
+        // }
 
-        // correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
+        correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
     }
     else if (visible_nodes[0] == 0 && visible_nodes[visible_nodes.size()-1] == Y_.rows()-1) {
         ROS_INFO("Mid-section occluded");
+        state = 2;
 
         correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
         std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 1);
@@ -1159,18 +1161,21 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     }
     else if (visible_nodes[0] == 0) {
         ROS_INFO("Tail occluded");
+        state = 1;
 
         correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
         // priors_vec = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
     }
     else if (visible_nodes[visible_nodes.size()-1] == Y_.rows()-1) {
         ROS_INFO("Head occluded");
+        state = 1;
 
         correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 1);
         // priors_vec = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
     }
     else {
         ROS_INFO("Both ends occluded");
+        state = 1;
 
         // determine which node moved the least
         int alignment_node_idx = -1;
@@ -1198,9 +1203,17 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
 
     double sigma2_pre_proc_2 = sigma2_;
 
+    double beta_for_use;
+    if (state == 1) {
+        beta_for_use = beta_2_;
+    }
+    else {
+        beta_for_use = beta_1_;
+    }
+
     // registration 1 - get sRt
     // MatrixXd T = bcpd(X_orig, guide_nodes_2_, sigma2_pre_proc_2, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
-    MatrixXd T = bcpd(corr_priors_1_pc, guide_nodes_2_, sigma2_pre_proc_2, beta_1_, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
+    MatrixXd T = bcpd(corr_priors_1_pc, guide_nodes_2_, sigma2_pre_proc_2, beta_for_use, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
 
     // transform the original point cloud
     MatrixXd X_transformed_h = X_orig.replicate(1, 1);
@@ -1225,7 +1238,7 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     }
 
     // registration 2 - get imputed velocity field
-    MatrixXd not_useful = bcpd(X_transformed, Y_, sigma2_, beta_2_, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_2_, zeta_);
+    MatrixXd not_useful = bcpd(X_transformed, Y_, sigma2_, beta_for_use, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_2_, zeta_);
 
     // transform Y_ to get the final result
     MatrixXd Y_h = Y_.replicate(1, 1);

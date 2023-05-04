@@ -259,9 +259,11 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                 // if using shorter rope
                 if (double_nodes) {
                     detector->detect(mask_blue, keypoints_blue);
-
                     for (cv::KeyPoint key_point : keypoints_blue) {
-                        cur_nodes_xyz.push_back(cloud_xyz(static_cast<int>(key_point.pt.x), static_cast<int>(key_point.pt.y)));
+                        auto keypoint_pc = cloud_xyz(static_cast<int>(key_point.pt.x), static_cast<int>(key_point.pt.y));
+                        if (keypoint_pc.z > 0.58) {
+                            cur_nodes_xyz.push_back(keypoint_pc);
+                        }
                     }
                 }
 
