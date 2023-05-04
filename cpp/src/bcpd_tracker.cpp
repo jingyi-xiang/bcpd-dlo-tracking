@@ -879,8 +879,8 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
     v_hat_flat.resize(M*3, 1);
 
     for (int it = 0; it < max_iter; it ++) {
-        std::cout << "---- iteration -----" << std::endl;
-        std::cout << it << std::endl;
+        // std::cout << "---- iteration -----" << std::endl;
+        // std::cout << it << std::endl;
 
         // ===== update P and related terms =====
         diff_xy = MatrixXd::Zero(M, N);
@@ -900,8 +900,8 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
         P = P.array().rowwise() / (P.colwise().sum().array() + c);
         P = P.unaryExpr([](double v) { return std::isfinite(v)? v : 0.0; });
 
-        std::cout << "===== P =====" << std::endl; 
-        std::cout << P.col(10).transpose() << std::endl;
+        // std::cout << "===== P =====" << std::endl; 
+        // std::cout << P.col(10).transpose() << std::endl;
 
         // MatrixXd P1 = P.rowwise().sum();
         // MatrixXd Pt1 = P.colwise().sum();
@@ -909,10 +909,10 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
         MatrixXd nu_prime = P.colwise().sum();
         double N_hat = P.sum();
 
-        std::cout << "=== nu ===" << std::endl;
-        std::cout << nu.transpose() << std::endl;
-        std::cout << "=== nu_corr ===" << std::endl;
-        std::cout << (J.rowwise().sum()).transpose() << std::endl;
+        // std::cout << "=== nu ===" << std::endl;
+        // std::cout << nu.transpose() << std::endl;
+        // std::cout << "=== nu_corr ===" << std::endl;
+        // std::cout << (J.rowwise().sum()).transpose() << std::endl;
 
         // compute X_hat
         MatrixXd nu_tilde = Eigen::kroneckerProduct(nu, MatrixXd::Constant(3, 1, 1.0));
@@ -952,26 +952,18 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
             v_hat = v_hat_t.transpose();
         }
         else {
-            std::cout << "in else statment" << std::endl;
-
             MatrixXd nu_corr = J.rowwise().sum();
             MatrixXd nu_corr_tilde = Eigen::kroneckerProduct(nu_corr, MatrixXd::Constant(3, 1, 1.0));
             MatrixXd J_tilde = Eigen::kroneckerProduct(J, MatrixXd::Identity(3, 3));
-
-            std::cout << "after calculating J and nu tilde" << std::endl;
             
             big_sigma = lambda * G.inverse();
             big_sigma += pow(s, 2)/sigma2 * nu.asDiagonal();
             big_sigma += pow(s, 2)/zeta * nu_corr.asDiagonal();
             big_sigma = big_sigma.inverse();
 
-            std::cout << "after calculating big_sigma" << std::endl;
-
             MatrixXd big_sigma_tilde = Eigen::kroneckerProduct(big_sigma, MatrixXd::Identity(3, 3));
             MatrixXd R_tilde = Eigen::kroneckerProduct(MatrixXd::Identity(M, M), R);
             MatrixXd t_tilde = Eigen::kroneckerProduct(MatrixXd::Constant(M, 1, 1.0), t);
-
-            std::cout << "before calculating residual" << std::endl;
 
             MatrixXd residual = 1/s * R_tilde.transpose() * (X_hat_flat - t_tilde) - Y_flat;
             MatrixXd dv_residual = nu_corr_tilde.asDiagonal() * (1/s * R_tilde.transpose() * J_tilde * X_flat - 1/s * R_tilde.transpose() * t_tilde - Y_flat);
@@ -1047,16 +1039,16 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
         MatrixXd sigma2_mat = 1/(N_hat*3) * (X_flat.transpose()*nu_prime_tilde.asDiagonal()*X_flat - 2*X_flat.transpose()*P_tilde.transpose()*Y_hat_flat + Y_hat_flat.transpose()*nu_tilde.asDiagonal()*Y_hat_flat) + pow(s, 2) * MatrixXd::Constant(1, 1, sigma2_bar);
         sigma2 = abs(sigma2_mat(0, 0));
 
-        std::cout << "=== T_hat ===" << std::endl;
-        std::cout << T_hat << std::endl;
+        // std::cout << "=== T_hat ===" << std::endl;
+        // std::cout << T_hat << std::endl;
 
-        std::cout << "=== sigma2 ===" << std::endl;
-        std::cout << sigma2_mat << std::endl;
+        // std::cout << "=== sigma2 ===" << std::endl;
+        // std::cout << sigma2_mat << std::endl;
 
         // ===== check convergence =====
         if (fabs(sigma2 - prev_sigma2) < tol && (Y_hat - prev_Y_hat).cwiseAbs().maxCoeff() < tol) {
-            std::cout << "=== Y_hat ===" << std::endl;
-            std::cout << Y_hat << std::endl;
+            // std::cout << "=== Y_hat ===" << std::endl;
+            // std::cout << Y_hat << std::endl;
             
             ROS_INFO_STREAM(("Converged after " + std::to_string(it) + " iterations. Time taken: " + std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_time).count()) + " ms."));
             break;
@@ -1131,27 +1123,29 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     if (occluded_nodes.size() == 0) {
         ROS_INFO("All nodes visible");
 
-        // // get priors vec
-        // std::vector<MatrixXd> priors_vec_1 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 0);
-        // std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_, visible_nodes, 1);
-        // // std::vector<MatrixXd> priors_vec_1 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
-        // // std::vector<MatrixXd> priors_vec_2 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
+        // get priors vec
+        std::vector<MatrixXd> priors_vec_1 = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
+        std::vector<MatrixXd> priors_vec_2 = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 1);
+        // std::vector<MatrixXd> priors_vec_1 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 0);
+        // std::vector<MatrixXd> priors_vec_2 = traverse_geodesic(geodesic_coord, guide_nodes, visible_nodes, 1);
 
-        // // take average
-        // correspondence_priors_ = {};
-        // for (int i = 0; i < Y_.rows(); i ++) {
-        //     if (i < priors_vec_2[0](0, 0) && i < priors_vec_1.size()) {
-        //         correspondence_priors_.push_back(priors_vec_1[i]);
-        //     }
-        //     else if (i > priors_vec_1[priors_vec_1.size()-1](0, 0) && (i-(Y_.rows()-priors_vec_2.size())) < priors_vec_2.size()) {
-        //         correspondence_priors_.push_back(priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]);
-        //     }
-        //     else {
-        //         correspondence_priors_.push_back((priors_vec_1[i] + priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]) / 2.0);
-        //     }
-        // }
+        std::reverse(priors_vec_2.begin(), priors_vec_2.end());
 
-        correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
+        // take average
+        correspondence_priors_1_ = {};
+        for (int i = 0; i < Y_.rows(); i ++) {
+            if (i < priors_vec_2[0](0, 0) && i < priors_vec_1.size()) {
+                correspondence_priors_1_.push_back(priors_vec_1[i]);
+            }
+            else if (i > priors_vec_1[priors_vec_1.size()-1](0, 0) && (i-(Y_.rows()-priors_vec_2.size())) < priors_vec_2.size()) {
+                correspondence_priors_1_.push_back(priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]);
+            }
+            else {
+                correspondence_priors_1_.push_back((priors_vec_1[i] + priors_vec_2[i-(Y_.rows()-priors_vec_2.size())]) / 2.0);
+            }
+        }
+
+        // correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 0);
     }
     else if (visible_nodes[0] == 0 && visible_nodes[visible_nodes.size()-1] == Y_.rows()-1) {
         ROS_INFO("Mid-section occluded");
@@ -1188,13 +1182,11 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
             }
         }
 
-        // std::cout << "alignment node index: " << alignment_node_idx << std::endl;
         correspondence_priors_1_ = traverse_euclidean(geodesic_coord_, guide_nodes_1_, visible_nodes, 2, alignment_node_idx);
     }
 
     MatrixXd corr_priors_1_pc = MatrixXd::Zero(correspondence_priors_1_.size(), 3);
 
-    std::cout << "finished traversal" << std::endl;
     guide_nodes_2_ = MatrixXd::Zero(correspondence_priors_1_.size(), 3);
     for (int i = 0; i < correspondence_priors_1_.size(); i ++) {
         corr_priors_1_pc(i, 0) = correspondence_priors_1_[i](0, 1);
@@ -1216,22 +1208,6 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
     X_transformed_h.col(X_transformed_h.cols()-1) = MatrixXd::Ones(X_transformed_h.rows(), 1);
     MatrixXd X_transformed = (T.inverse() * X_transformed_h.transpose()).transpose().leftCols(3);
 
-    // // transform guide_nodes_2
-    // MatrixXd gn_without_transform_h = guide_nodes_2_.replicate(1, 1);
-    // gn_without_transform_h.conservativeResize(guide_nodes_2_.rows(), guide_nodes_2_.cols()+1);
-    // gn_without_transform_h.col(gn_without_transform_h.cols()-1) = MatrixXd::Ones(gn_without_transform_h.rows(), 1);
-    // MatrixXd gn_without_transform = (T.inverse() * gn_without_transform_h.transpose()).transpose().leftCols(3);
-
-    // // compute corr_priors_2
-    // for (int i = 0; i < correspondence_priors_1_.size(); i ++) {
-    //     MatrixXd temp = MatrixXd::Zero(1, 4);
-    //     temp(0, 0) = correspondence_priors_1_[i](0, 0);
-    //     temp(0, 1) = gn_without_transform(i, 0);
-    //     temp(0, 2) = gn_without_transform(i, 1);
-    //     temp(0, 3) = gn_without_transform(i, 2);
-    //     correspondence_priors_2_.push_back(temp);
-    // }
-
     // transform guide_nodes_2
     MatrixXd gn_without_transform_h = corr_priors_1_pc.replicate(1, 1);
     gn_without_transform_h.conservativeResize(corr_priors_1_pc.rows(), corr_priors_1_pc.cols()+1);
@@ -1247,7 +1223,6 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
         temp(0, 3) = gn_without_transform(i, 2);
         correspondence_priors_2_.push_back(temp);
     }
-    // std::cout << "corr_prior_2 size = " << correspondence_priors_2_.size() << std::endl;
 
     // registration 2 - get imputed velocity field
     MatrixXd not_useful = bcpd(X_transformed, Y_, sigma2_, beta_2_, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_2_, zeta_);
