@@ -8,14 +8,14 @@
 
     <node name="bcpd" pkg="bcpd-dlo-tracking" type="bcpd" output="screen">
         <param name="beta_1" value="5" />
-        <param name="beta_2" value="10" />
-        <param name="lambda" value="15" />
+        <param name="beta_2" value="5" />
+        <param name="lambda" value="40" />
         <param name="tao" value="0.995" />
 
         <param name="omega" value="0.0" />
         <param name="kappa" type="double" value="1e16" />
-        <param name="gam" value="1.2" />
-        <param name="zeta" type="double" value="1e-10" />
+        <param name="gam" value="1.1" />
+        <param name="zeta" type="double" value="1e-8" />
 
         <param name="max_iter" value="50" />
         <param name="tol" value="0.0001" />

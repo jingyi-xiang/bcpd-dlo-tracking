@@ -814,16 +814,12 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
     }
     MatrixXd G_geodesic;
     G_geodesic = (-converted_node_dis_sq / (2 * beta * beta)).array().exp();
-    // G_geodesic = 1 / (converted_node_dis_sq.array() + pow(beta, 2)).sqrt();
-    // G_geodesic = 1 - converted_node_dis_sq.array() / (converted_node_dis_sq.array() + pow(beta, 2));
-    // MatrixXd G_orig = G_geodesic.replicate(1, 1);
     MatrixXd G_1 = (-converted_node_dis / (2 * beta * beta)).array().exp();
     MatrixXd G_2 = 1/(2*beta * 2*beta) * (-sqrt(2)*converted_node_dis/beta).array().exp() * (sqrt(2)*converted_node_dis.array() + beta);
     MatrixXd G = (1-tao)*G_1 + tao*G_2;
-    // MatrixXd G_orig = 0.00001 * (-converted_node_dis / (2 * beta * beta)).array().exp() + 0.99999 * G_geodesic.array();
-    // MatrixXd G_orig = 27 * 1/(72 * pow(beta, 3)) * (-sqrt(3)*converted_node_dis/beta).array().exp() * (sqrt(3)*beta*beta + 3*beta*converted_node_dis.array() + sqrt(3)*converted_node_dis_sq.array());
     
     // // ===== G approximation =====
+    // MatrixXd G_orig = (1-tao)*G_geodesic + tao*G_euclidean;
     // Eigen::EigenSolver<MatrixXd> solver;
     // solver.compute(G_orig, true);
     // // std::cout << "=== eigenvalues ===" << std::endl;
@@ -847,18 +843,7 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
     //     positive_eig_values.row(i) = collection_of_positive_eigenvalues[i];
     // }
     // MatrixXcd G_hat = positive_eig_vectors * positive_eig_values.asDiagonal() * positive_eig_vectors.transpose();
-    // // MatrixXd G = G_hat.real();
-    // MatrixXd G = G_orig.replicate(1, 1);
-
-    // std::cout << "===== original G =====" << std::endl;
-    // std::cout << G_orig << std::endl;
-    // std::cout << "===== approximated G =====" << std::endl;
-    // std::cout << G << std::endl;
-    // std::cout << "===== difference =====" << std::endl;
-    // std::cout << G - G_orig << std::endl;
-
-    // MatrixXd G = 1/(2*beta * 2*beta) * (-sqrt(2)*converted_node_dis/beta).array().exp() * (sqrt(2)*converted_node_dis.array() + beta);
-    // MatrixXd G = 0.00000001 * (-converted_node_dis / (2 * beta * beta)).array().exp() + 0.99999999 * G_geodesic.array();
+    // MatrixXd G = G_hat.real();
 
     // Initialize sigma2
     MatrixXd diff_xy = MatrixXd::Zero(M, N);
@@ -1020,7 +1005,8 @@ MatrixXd bcpd_tracker::bcpd (MatrixXd X_orig,
             middle_mat(2, 2) = (U * Vt).determinant();
             R = U * middle_mat * Vt;
 
-            s = (R * S_xu).trace() / S_uu.trace();
+            // s = (R * S_xu).trace() / S_uu.trace();
+            s = 1.0;
             t = X_bar.transpose() - s*R*u_bar.transpose();
 
             T_hat = MatrixXd::Identity(4, 4);
