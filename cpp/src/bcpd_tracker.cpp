@@ -25,6 +25,7 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes)
     max_iter_ = 50;
     tol_ = 0.00001;
     use_prev_sigma2_ = false;
+    compute_srt_ = true;
 }
 
 bcpd_tracker::bcpd_tracker(int num_of_nodes,
@@ -38,7 +39,8 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes,
                            double zeta,
                            int max_iter,
                            const double tol,
-                           bool use_prev_sigma2)
+                           bool use_prev_sigma2,
+                           bool compute_srt)
 {
     Y_ = MatrixXd::Zero(num_of_nodes, 3);
     sigma2_ = 0.0;
@@ -54,6 +56,7 @@ bcpd_tracker::bcpd_tracker(int num_of_nodes,
     max_iter_ = max_iter;
     tol_ = tol;
     use_prev_sigma2_ = use_prev_sigma2;
+    compute_srt_ = compute_srt;
 }
 
 double bcpd_tracker::get_sigma2 () {
@@ -1211,39 +1214,44 @@ void bcpd_tracker::tracking_step (MatrixXd X_orig,
         beta_for_use = beta_1_;
     }
 
-    // registration 1 - get sRt
-    // MatrixXd T = bcpd(X_orig, guide_nodes_2_, sigma2_pre_proc_2, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
-    MatrixXd T = bcpd(corr_priors_1_pc, guide_nodes_2_, sigma2_pre_proc_2, beta_for_use, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
+    if (compute_srt_) {
+        // registration 1 - get sRt
+        // MatrixXd T = bcpd(X_orig, guide_nodes_2_, sigma2_pre_proc_2, beta_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
+        MatrixXd T = bcpd(corr_priors_1_pc, guide_nodes_2_, sigma2_pre_proc_2, beta_for_use, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, true, {}, 0);
 
-    // transform the original point cloud
-    MatrixXd X_transformed_h = X_orig.replicate(1, 1);
-    X_transformed_h.conservativeResize(X_orig.rows(), X_orig.cols()+1);
-    X_transformed_h.col(X_transformed_h.cols()-1) = MatrixXd::Ones(X_transformed_h.rows(), 1);
-    MatrixXd X_transformed = (T.inverse() * X_transformed_h.transpose()).transpose().leftCols(3);
+        // transform the original point cloud
+        MatrixXd X_transformed_h = X_orig.replicate(1, 1);
+        X_transformed_h.conservativeResize(X_orig.rows(), X_orig.cols()+1);
+        X_transformed_h.col(X_transformed_h.cols()-1) = MatrixXd::Ones(X_transformed_h.rows(), 1);
+        MatrixXd X_transformed = (T.inverse() * X_transformed_h.transpose()).transpose().leftCols(3);
 
-    // transform guide_nodes_2
-    MatrixXd gn_without_transform_h = corr_priors_1_pc.replicate(1, 1);
-    gn_without_transform_h.conservativeResize(corr_priors_1_pc.rows(), corr_priors_1_pc.cols()+1);
-    gn_without_transform_h.col(gn_without_transform_h.cols()-1) = MatrixXd::Ones(gn_without_transform_h.rows(), 1);
-    MatrixXd gn_without_transform = (T.inverse() * gn_without_transform_h.transpose()).transpose().leftCols(3);
+        // transform guide_nodes_2
+        MatrixXd gn_without_transform_h = corr_priors_1_pc.replicate(1, 1);
+        gn_without_transform_h.conservativeResize(corr_priors_1_pc.rows(), corr_priors_1_pc.cols()+1);
+        gn_without_transform_h.col(gn_without_transform_h.cols()-1) = MatrixXd::Ones(gn_without_transform_h.rows(), 1);
+        MatrixXd gn_without_transform = (T.inverse() * gn_without_transform_h.transpose()).transpose().leftCols(3);
 
-    // compute corr_priors_2
-    for (int i = 0; i < correspondence_priors_1_.size(); i ++) {
-        MatrixXd temp = MatrixXd::Zero(1, 4);
-        temp(0, 0) = correspondence_priors_1_[i](0, 0);
-        temp(0, 1) = gn_without_transform(i, 0);
-        temp(0, 2) = gn_without_transform(i, 1);
-        temp(0, 3) = gn_without_transform(i, 2);
-        correspondence_priors_2_.push_back(temp);
+        // compute corr_priors_2
+        for (int i = 0; i < correspondence_priors_1_.size(); i ++) {
+            MatrixXd temp = MatrixXd::Zero(1, 4);
+            temp(0, 0) = correspondence_priors_1_[i](0, 0);
+            temp(0, 1) = gn_without_transform(i, 0);
+            temp(0, 2) = gn_without_transform(i, 1);
+            temp(0, 3) = gn_without_transform(i, 2);
+            correspondence_priors_2_.push_back(temp);
+        }
+
+        // registration 2 - get imputed displacement field
+        MatrixXd not_useful = bcpd(X_transformed, Y_, sigma2_, beta_for_use, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_2_, zeta_);
+
+        // transform Y_ to get the final result
+        MatrixXd Y_h = Y_.replicate(1, 1);
+        Y_h.conservativeResize(Y_.rows(), Y_.cols()+1);
+        Y_h.col(Y_h.cols()-1) = MatrixXd::Ones(Y_h.rows(), 1);
+        MatrixXd final_result = (T * Y_h.transpose()).transpose().leftCols(3);
+        Y_ = final_result.replicate(1, 1);
     }
-
-    // registration 2 - get imputed velocity field
-    MatrixXd not_useful = bcpd(X_transformed, Y_, sigma2_, beta_for_use, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_2_, zeta_);
-
-    // transform Y_ to get the final result
-    MatrixXd Y_h = Y_.replicate(1, 1);
-    Y_h.conservativeResize(Y_.rows(), Y_.cols()+1);
-    Y_h.col(Y_h.cols()-1) = MatrixXd::Ones(Y_h.rows(), 1);
-    MatrixXd final_result = (T * Y_h.transpose()).transpose().leftCols(3);
-    Y_ = final_result.replicate(1, 1);
+    else {
+        MatrixXd not_useful = bcpd(X_orig, Y_, sigma2_, beta_for_use, tao_, lambda_, omega_, kappa_, gamma_, max_iter_, tol_, use_prev_sigma2_, correspondence_priors_1_, zeta_);
+    }
 }

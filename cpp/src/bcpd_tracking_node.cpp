@@ -40,6 +40,7 @@ double tol;
 bool use_prev_sigma2;
 double downsample_leaf_size;
 bool double_nodes;
+bool compute_srt;
 
 bcpd_tracker tracker;
 
@@ -271,7 +272,7 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                 MatrixXd Y_0_sorted = sort_pts(Y_0);
                 Y = Y_0_sorted.replicate(1, 1);
                 
-                tracker = bcpd_tracker(Y_0_sorted.rows(), beta_1, beta_2, tao, lambda, omega, kappa, gam, zeta, max_iter, tol, use_prev_sigma2);
+                tracker = bcpd_tracker(Y_0_sorted.rows(), beta_1, beta_2, tao, lambda, omega, kappa, gam, zeta, max_iter, tol, use_prev_sigma2, compute_srt);
 
                 sigma2 = 0.0;
 
@@ -568,6 +569,7 @@ int main(int argc, char **argv) {
     nh.getParam("/bcpd/num_of_nodes", num_of_nodes);
     nh.getParam("/bcpd/downsample_leaf_size", downsample_leaf_size);
     nh.getParam("/bcpd/double_nodes", double_nodes);
+    nh.getParam("/bcpd/compute_srt", compute_srt);
 
     int pub_queue_size = 30;
 

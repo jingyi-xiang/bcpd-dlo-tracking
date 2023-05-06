@@ -70,7 +70,8 @@ class bcpd_tracker
                      double zeta,
                      int max_iter,
                      const double tol,
-                     bool use_prev_sigma2);
+                     bool use_prev_sigma2,
+                     bool compute_srt_);
 
         double get_sigma2();
         MatrixXd get_tracking_result();
@@ -140,6 +141,7 @@ class bcpd_tracker
         int max_iter_;
         double tol_;
         bool use_prev_sigma2_;
+        bool compute_srt_;
         std::vector<double> geodesic_coord_;
         std::vector<MatrixXd> correspondence_priors_1_;
         std::vector<MatrixXd> correspondence_priors_2_;
