@@ -311,7 +311,7 @@ sensor_msgs::ImagePtr Callback(const sensor_msgs::ImageConstPtr& image_msg, cons
                     cur_sum += (Y.row(i+1) - Y.row(i)).norm();
                     converted_node_coord.push_back(cur_sum);
                 }
-
+                tracker = bcpd_tracker(Y.rows(), beta_1, beta_2, tao, lambda, omega, kappa, gam, zeta, max_iter, tol, use_prev_sigma2, compute_srt);
                 tracker.initialize_nodes(Y);
                 tracker.initialize_geodesic_coord(converted_node_coord);
             }

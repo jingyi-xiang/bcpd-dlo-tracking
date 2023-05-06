@@ -1,7 +1,7 @@
 <launch>
     <!-- 0 -> statinary.bag; 1 -> with_gripper_perpendicular.bag; 2 -> with_gripper_parallel.bag -->
     <!-- 3 -> self_intersection.bag; 4 -> folding -->
-    <arg name="bag_file" default="1" />
+    <arg name="bag_file" default="0" />
     <arg name="use_eval_rope" default="true" />
     <arg name="double_nodes" default="false" />
     <arg name="compute_srt" default="true" />
